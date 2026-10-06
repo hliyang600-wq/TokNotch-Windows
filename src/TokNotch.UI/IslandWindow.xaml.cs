@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Input;
 using System.Windows.Threading;
 using TokNotch.UI.Themes;
@@ -55,8 +56,19 @@ public partial class IslandWindow : Window
  {
   args.Handled=true;if(!RingRefreshButton.IsEnabled)return;
   RingRefreshButton.IsEnabled=false;
+  UsageRing.Opacity=.55;
+  if(!ReduceMotion)UsageRing.BeginAnimation(OpacityProperty,new DoubleAnimation(.45,1,TimeSpan.FromMilliseconds(450)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever});
   try{if(RefreshRequested is {} refresh)await refresh();}
-  finally{RingRefreshButton.IsEnabled=true;}
+  finally
+  {
+   UsageRing.BeginAnimation(OpacityProperty,null);UsageRing.Opacity=1;RingRefreshButton.IsEnabled=true;
+   if(!ReduceMotion&&IsLoaded)
+   {
+    var pulse=new DoubleAnimation(.45,1,TimeSpan.FromMilliseconds(400)){FillBehavior=FillBehavior.Stop};
+    pulse.Completed+=(_,_)=>UsageRing.BeginAnimation(OpacityProperty,null);
+    UsageRing.BeginAnimation(OpacityProperty,pulse);
+   }
+  }
  }
  private static bool WithinButton(DependencyObject? item){while(item!=null){if(item is Button)return true;item=item is System.Windows.Documents.Run run?run.Parent:VisualTreeHelper.GetParent(item);}return false;}
  private void SelectProvider(object sender, RoutedEventArgs args) { if (sender is Button button && button.Tag is Provider provider) ((IslandViewModel)DataContext).Select(provider); args.Handled = true; }
