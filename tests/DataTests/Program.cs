@@ -16,6 +16,7 @@ await DeepSeekTests.Run(root);
 await RingTests.Run(root);
 RingChoiceTests.Run(root);
 WindowPreferenceTests.Run(root);
+GlassFrameRateTests.Run(root);
 await ApiKeyTests.Run(root);
 await RefreshTests.Run(root);
 await AuthenticationTests.Run(root);

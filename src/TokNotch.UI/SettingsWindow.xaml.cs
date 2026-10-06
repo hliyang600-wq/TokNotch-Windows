@@ -47,6 +47,8 @@ public partial class SettingsWindow : Window
  {
   InitializeComponent();this.commands=commands;RefreshNowButton.IsEnabled=commands!=null;ShowIslandButton.IsEnabled=commands!=null;ExitAppButton.IsEnabled=commands!=null;connectDeepSeek=deepseek;ConnectDeepSeekButton.IsEnabled=deepseek!=null;forgetDeepSeek=forgetStoredDeepSeek;ForgetDeepSeekButton.IsEnabled=forgetDeepSeek!=null;forgetKimi=forgetStoredKimi;ForgetKimiButton.IsEnabled=forgetKimi!=null;autoMimo=autoConnectMimo;disconnectMimo=disconnect;AutoMimoButton.IsEnabled=autoMimo!=null;DisconnectMimoButton.IsEnabled=disconnectMimo!=null;save=savePreferences;connectKimi=kimi;connectMimo=mimo;providers=preferences.Providers.ToArray();metrics=preferences.Metrics.ToArray();rings=preferences.Rings.ToDictionary(pair=>pair.Key,pair=>pair.Value);
   WindowModeBox.SelectedIndex=preferences.Expansion switch{ExpansionMode.Click=>1,ExpansionMode.AlwaysExpanded=>2,_=>0};MaterialBox.SelectedIndex=preferences.GlassEnabled?0:1;
+  ExpandedCustomFps.Text=preferences.Window.ExpandedRate.CustomFps.ToString(CultureInfo.InvariantCulture);CollapsedCustomFps.Text=preferences.Window.CollapsedRate.CustomFps.ToString(CultureInfo.InvariantCulture);
+  ExpandedRateBox.SelectedIndex=(int)preferences.Window.ExpandedRate.Mode;CollapsedRateBox.SelectedIndex=(int)preferences.Window.CollapsedRate.Mode;
   ThemeBox.SelectedIndex=(int)preferences.Window.Theme;AnimationModeBox.SelectedIndex=(int)preferences.Window.Animation;CollapseDelayBox.Text=preferences.Window.CollapseDelayMilliseconds.ToString(CultureInfo.InvariantCulture);UpdatePositionEditor(preferences.Window);
   BaselineCny.Text=preferences.AmountBaselineCny.ToString("0.##",CultureInfo.InvariantCulture);BaselineUsd.Text=preferences.AmountBaselineUsd?.ToString("0.##",CultureInfo.InvariantCulture)??"";RefreshSecondsBox.Text=preferences.RefreshSeconds.ToString(CultureInfo.InvariantCulture);BalanceSecondsBox.Text=preferences.BalanceRefreshSeconds.ToString(CultureInfo.InvariantCulture);
   TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);TextOptions.SetTextRenderingMode(this,TextRenderingMode.Grayscale);
@@ -57,7 +59,19 @@ public partial class SettingsWindow : Window
   if(!double.TryParse(EdgeOffsetBox.Text.Trim(),NumberStyles.Float,CultureInfo.InvariantCulture,out var offset)||!double.IsFinite(offset)||offset<0||offset>100)throw new ArgumentException("沿边位置需在 0–100% 之间。");
   if(!int.TryParse(EdgeMarginBox.Text.Trim(),out var margin)||margin<0||margin>100)throw new ArgumentException("边缘距离需在 0–100 之间。");
   if(!int.TryParse(CollapseDelayBox.Text.Trim(),out var delay)||delay<200||delay>1000)throw new ArgumentException("收起延迟需在 200–1000 毫秒之间。");
-  return new((AppearanceTheme)ThemeBox.SelectedIndex,(DockEdge)DockEdgeBox.SelectedIndex,(DisplayTarget)DisplayTargetBox.SelectedIndex,MonitorBox.SelectedValue as string,offset/100,margin,DragEnabledBox.IsChecked==true,(AnimationMode)AnimationModeBox.SelectedIndex,delay);
+  return new((AppearanceTheme)ThemeBox.SelectedIndex,(DockEdge)DockEdgeBox.SelectedIndex,(DisplayTarget)DisplayTargetBox.SelectedIndex,MonitorBox.SelectedValue as string,offset/100,margin,DragEnabledBox.IsChecked==true,(AnimationMode)AnimationModeBox.SelectedIndex,delay,ReadGlassRate(ExpandedRateBox,ExpandedCustomFps),ReadGlassRate(CollapsedRateBox,CollapsedCustomFps));
+ }
+ private static GlassFrameRate ReadGlassRate(ComboBox box,TextBox custom)
+ {
+  var mode=(GlassFrameRateMode)box.SelectedIndex;var fps=30;
+  if(mode==GlassFrameRateMode.Custom&&(!int.TryParse(custom.Text.Trim(),out fps)||fps<1||fps>360))throw new ArgumentException("自定义玻璃采样帧率需在 1–360 FPS 之间。");
+  if(mode!=GlassFrameRateMode.Custom&&int.TryParse(custom.Text.Trim(),out var previous)&&previous>=1&&previous<=360)fps=previous;
+  return new(mode,fps);
+ }
+ private void ChangeGlassRate(object sender,SelectionChangedEventArgs args)
+ {
+  if(ExpandedCustomFps is not null)ExpandedCustomFps.Visibility=ExpandedRateBox.SelectedIndex==3?Visibility.Visible:Visibility.Collapsed;
+  if(CollapsedCustomFps is not null)CollapsedCustomFps.Visibility=CollapsedRateBox.SelectedIndex==3?Visibility.Visible:Visibility.Collapsed;
  }
  internal void UpdatePositionEditor(WindowPreferences preferences)
  {
@@ -146,4 +160,3 @@ public partial class SettingsWindow : Window
  private void DragHeader(object sender,MouseButtonEventArgs args){if(args.LeftButton==MouseButtonState.Pressed)DragMove();}
  private void CloseSettings(object sender,RoutedEventArgs args)=>Close();
 }
-

@@ -56,3 +56,5 @@ GitHub Actions 在 Windows 上构建、检查测试夹具并生成便携包。�
 项目代码使用 MIT；依赖、字体和设计参考的说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，完整许可证在 `LICENSES/`。感谢 [liquid-glass-react](https://github.com/rdev/liquid-glass-react) 的视觉参考，以及 [TokNotch](https://github.com/ReffWu/toknotch) 的悬浮岛思路。
 
 提交问题时请遮盖账户、余额、日志路径和凭据，不要上传 `data/`、浏览器配置或原始会话日志。
+
+玻璃采样帧率可在「设置 → 外观」中分别设置展开静止与收起状态：15 / 30 / 60 FPS / 自定义（1–360）/ 跟随屏幕，默认均为 30 FPS。动画和拖动期间解除静止限速；锁屏、熄屏和休眠时暂停并释放采样资源。档位是采样上限，实际更新还受显示器、桌面变化和渲染开销影响。

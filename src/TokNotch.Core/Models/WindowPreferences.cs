@@ -15,10 +15,15 @@ public sealed record WindowPreferences(
  int EdgeMargin=8,
  bool DragEnabled=true,
  AnimationMode Animation=AnimationMode.Normal,
- int CollapseDelayMilliseconds=300)
+ int CollapseDelayMilliseconds=300,
+ GlassFrameRate? ExpandedGlassRate=null,
+ GlassFrameRate? CollapsedGlassRate=null)
 {
+ [System.Text.Json.Serialization.JsonIgnore] public GlassFrameRate ExpandedRate=>ExpandedGlassRate??new();
+ [System.Text.Json.Serialization.JsonIgnore] public GlassFrameRate CollapsedRate=>CollapsedGlassRate??new();
  public void Validate()
  {
+  ExpandedRate.Validate();CollapsedRate.Validate();
   if(!Enum.IsDefined(Theme)||!Enum.IsDefined(Edge)||!Enum.IsDefined(Display)||!Enum.IsDefined(Animation))throw new ArgumentException("外观、位置或动画选项无效。");
   if(!double.IsFinite(Offset)||Offset<0||Offset>1)throw new ArgumentException("沿边位置需在 0–100% 之间。");
   if(EdgeMargin<0||EdgeMargin>100)throw new ArgumentException("边缘距离需在 0–100 之间。");

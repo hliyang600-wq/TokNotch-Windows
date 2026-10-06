@@ -39,8 +39,8 @@ public partial class IslandWindow : Window
   TextOptions.SetTextRenderingMode(this, TextRenderingMode.Grayscale);
   _stagger = new(HeaderRow, MetricsRow, ProviderRow);
   Policy = new(new DispatcherDeferredScheduler(Dispatcher)); Morph = new(ApplyMorph);
-  Policy.TargetChanged += expanded => Morph.Animate(expanded, ReduceMotion,_window.Animation==AnimationMode.Reduced);
-  Morph.Settled += Policy.AnimationSettled;
+  Policy.TargetChanged += expanded => {Morph.Animate(expanded, ReduceMotion,_window.Animation==AnimationMode.Reduced);UpdateGlassCadence();};
+  Morph.Settled += expanded=>{Policy.AnimationSettled(expanded);UpdateGlassCadence();};
   MouseEnter += (_, _) => {if(!_mouseDown)Policy.PointerEnter();}; MouseLeave += (_, _) => {if(!_mouseDown)Policy.PointerLeave();};
   MouseLeftButtonDown += PointerDown;MouseMove+=PointerMove;MouseLeftButtonUp+=PointerUp;
   LostMouseCapture+=(_,_)=>{if(_mouseDown){_mouseDown=false;_dragging=false;ApplyMorph(Morph.ShapeProgress);Policy.PointerLeave();}};
@@ -71,7 +71,7 @@ public partial class IslandWindow : Window
   else if(changed&&Morph.IsRunning)Morph.Animate(Policy.TargetExpanded,false,_window.Animation==AnimationMode.Reduced);
   else ApplyMorph(Morph.ShapeProgress);
   if(_window.Display==DisplayTarget.FollowCursor)_follow.Start();else _follow.Stop();
-  ApplyTheme();Glass?.Enable(preferences.GlassEnabled);
+  ApplyTheme();Glass?.Enable(preferences.GlassEnabled);UpdateGlassCadence();
  }
  private void ApplyTheme(){ThemeManager.Apply(_window.Theme);Surface.ApplyTheme(ThemeManager.IsLight);((IslandViewModel)DataContext).RefreshTheme();UsageRing.InvalidateVisual();}
  private void PointerDown(object sender,MouseButtonEventArgs args)
@@ -93,7 +93,7 @@ public partial class IslandWindow : Window
   if(!_mouseDown||args.LeftButton!=MouseButtonState.Pressed||!NativeMethods.GetCursorPos(out var point))return;
   var dx=point.X-_pointerStart.X;var dy=point.Y-_pointerStart.Y;
   if(!_dragging&&Math.Abs(dx)+Math.Abs(dy)<6)return;
-  _dragging=true;Native!.SetBounds(_dragStart.Left+dx,_dragStart.Top+dy,_dragStart.Right-_dragStart.Left,_dragStart.Bottom-_dragStart.Top);
+  _dragging=true;UpdateGlassCadence();Native!.SetBounds(_dragStart.Left+dx,_dragStart.Top+dy,_dragStart.Right-_dragStart.Left,_dragStart.Bottom-_dragStart.Top);
  }
  private void PointerUp(object sender,MouseButtonEventArgs args)
  {
@@ -114,6 +114,7 @@ public partial class IslandWindow : Window
   _window=DockLayout.FromDrag(area.Left,area.Top,area.Right,area.Bottom,x,y,IslandGeometry.HostWidth*dpi.DpiScaleX,IslandGeometry.HostHeight*dpi.DpiScaleY,_window,area.Device,dpi.DpiScaleX);
   _area=area;_follow.Stop();ApplyMorph(Morph.ShapeProgress);PositionChanged?.Invoke(_window);
  }
+ private void UpdateGlassCadence()=>Glass?.SetCadence(_window,Policy.TargetExpanded,_dragging||Morph.IsRunning);
  private void ApplyMorph(double shapeProgress)
  {
   var progress=Math.Clamp(shapeProgress,0,1);
@@ -137,7 +138,6 @@ public partial class IslandWindow : Window
   Canvas.SetLeft(Expanded, 0); Expanded.Width = 340;
   Expanded.Opacity = 1; Expanded.IsHitTestVisible = progress > .95;
   AnimationsEnabled = !ReduceMotion && _window.Animation==AnimationMode.Normal && progress > .95;
-  _stagger.Apply(progress, ReduceMotion);
+  _stagger.Apply(progress, ReduceMotion);UpdateGlassCadence();
  }
 }
-

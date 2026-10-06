@@ -22,6 +22,16 @@ internal static class WindowSettingsValidation
    settings.Show();await Task.Delay(80);island.MotionPreferenceOverride=false;
    var appearance=(Button)settings.FindName("AppearanceTab");appearance.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
    Check(((FrameworkElement)settings.FindName("AppearancePage")).Visibility==Visibility.Visible&&((FrameworkElement)settings.FindName("DisplayPage")).Visibility==Visibility.Collapsed,"appearance has an independent settings page");
+   var expandedRate=(ComboBox)settings.FindName("ExpandedRateBox");var collapsedRate=(ComboBox)settings.FindName("CollapsedRateBox");var customRate=(TextBox)settings.FindName("ExpandedCustomFps");
+   Check(expandedRate.Items.Count==5&&collapsedRate.Items.Count==5,"both glass selectors expose exactly five requested choices");
+   expandedRate.SelectedIndex=3;customRate.Text="47";collapsedRate.SelectedIndex=0;
+   Check(customRate.Visibility==Visibility.Visible,"custom glass FPS input appears only for the custom choice");
+   ((Button)settings.FindName("SavePreferencesButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+   Check(saved?.Window.ExpandedRate.FramesPerSecond==47&&saved.Window.CollapsedRate.FramesPerSecond==15,"glass rate settings save independently");
+   customRate.Text="0";((Button)settings.FindName("SavePreferencesButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+   Check(((TextBlock)settings.FindName("SaveStatus")).Text.Contains("1–360")&&saved?.Window.ExpandedRate.CustomFps==47,"invalid custom FPS is rejected without changing saved rates");
+   expandedRate.SelectedIndex=4;Check(customRate.Visibility==Visibility.Collapsed,"display mode hides the custom FPS input");
+   expandedRate.SelectedIndex=1;customRate.Text="30";collapsedRate.SelectedIndex=1;
    ((ComboBox)settings.FindName("ThemeBox")).SelectedIndex=1;((Button)settings.FindName("SavePreferencesButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
    Check(saved?.Window.Theme==AppearanceTheme.Light&&Themes.ThemeManager.IsLight,"saving light theme applies to the running island");
    Check(((SolidColorBrush)settings.FindResource("TextPrimary")).Color.R<80&&((SolidColorBrush)settings.Background).Color.R>200,"light theme provides dark text and a light settings surface");
@@ -70,4 +80,3 @@ internal static class WindowSettingsValidation
  private static async Task Idle(){for(int i=0;i<100&&Animations.AnimationClock.Current.ActiveCount>0;i++)await Task.Delay(15);}
  private static async Task Capture(Window window,string file){window.UpdateLayout();await Task.Delay(60);var bitmap=new RenderTargetBitmap((int)(window.ActualWidth*1.5),(int)(window.ActualHeight*1.5),144,144,PixelFormats.Pbgra32);bitmap.Render(window);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var stream=File.Create(file);encoder.Save(stream);}
 }
-

@@ -31,7 +31,7 @@ public partial class App : Application
  private readonly DisplayPreferencesStore preferencesStore=new(ApplicationPaths.DataRoot);
  protected override async void OnStartup(StartupEventArgs e)
  {
-  bool diagnostic=e.Args.Any(a=>a is "--validate" or "--live-validate" or "--glass-validate" or "--glass-position-validate" or "--auth-validate" or "--data-validate" or "--balance-validate" or "--glass-review");
+  bool diagnostic=e.Args.Any(a=>a is "--validate" or "--live-validate" or "--glass-validate" or "--glass-position-validate" or "--auth-validate" or "--data-validate" or "--balance-validate" or "--glass-review" or "--glass-rate-validate");
   if(!diagnostic)
   {
    singleInstance=new(request=>{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(()=>ActivateExisting(request)));});
@@ -39,12 +39,12 @@ public partial class App : Application
   }
   base.OnStartup(e);if(e.Args.Contains("--auth-validate")){try{await AuthenticationValidation.RunAsync();Shutdown();}catch(Exception error){var report=Path.Combine(ApplicationPaths.ArtifactsDirectory,"authentication-webview-error.txt");await File.WriteAllTextAsync(report,error.GetType().Name+" HRESULT "+error.HResult.ToString("X")+" "+error.Message);Shutdown(1);}return;}
   if(e.Args.Contains("--data-validate")){var data=await Task.Run(()=>logs.Read());var output=ApplicationPaths.ArtifactsDirectory;Directory.CreateDirectory(output);await File.WriteAllTextAsync(Path.Combine(output,"real-data.json"),System.Text.Json.JsonSerializer.Serialize(data.Vendors.Select(v=>new{v.Title,v.Detection,Today=v.Today.Tokens.Total,Month=v.Month.Tokens.Total,AllTime=v.AllTime.Tokens.Total,v.SourceStatus}),new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));Shutdown();return;}
-  var model=new IslandViewModel();var source=new MockUsageSource();bool demo=e.Args.Any(a=>a is "--validate" or "--glass-validate" or "--glass-position-validate" or "--glass-review");
+  var model=new IslandViewModel();var source=new MockUsageSource();bool demo=e.Args.Any(a=>a is "--validate" or "--glass-validate" or "--glass-position-validate" or "--glass-review" or "--glass-rate-validate");
   Themes.ThemeManager.Apply(AppearanceTheme.Dark);
   if(demo)model.Apply(await source.GetUsageAsync(default));
   else{model.Configure(e.Args.Contains("--live-validate")?DisplayPreferences.Default:preferencesStore.Load());model.Select(model.FirstProvider);model.Apply(new(DateTimeOffset.Now,DateTimeOffset.Now,TimeZoneInfo.Local.Id,false,RefreshState.Refreshing,Array.Empty<ProviderUsageSnapshot>(),Array.Empty<ModelUsage>()));}
   var island=new IslandWindow(model,!e.Args.Contains("--validate")&&!e.Args.Contains("--live-validate"));MainWindow=island;
-  island.Closed+=(_,_)=>{if(!e.Args.Any(arg=>arg is "--validate" or "--glass-validate" or "--glass-position-validate" or "--live-validate"))Shutdown();};
+  island.Closed+=(_,_)=>{if(!e.Args.Any(arg=>arg is "--validate" or "--glass-validate" or "--glass-position-validate" or "--live-validate" or "--glass-rate-validate"))Shutdown();};
   if(e.Args.Contains("--review"))island.ShowInTaskbar=true;
   island.Show();NativeShow(island.Native!.Handle,4);
   if(e.Args.Contains("--review")){var style=TokNotch.Infrastructure.Windows.NativeMethods.GetWindowLongPtr(island.Native.Handle,-20);TokNotch.Infrastructure.Windows.NativeMethods.SetWindowLongPtr(island.Native.Handle,-20,style&~TokNotch.Infrastructure.Windows.NativeMethods.WsExToolWindow);island.Policy.SetMode(TokNotch.Core.Interaction.ExpansionMode.AlwaysExpanded);}
@@ -56,6 +56,7 @@ public partial class App : Application
    StartRefreshLoop();
   }
   if(e.Args.Contains("--settings"))OpenSettings(e.Args.Contains("--connections"));if(e.Args.Contains("--appearance"))settingsWindow?.ShowAppearancePage();if(e.Args.Contains("--mimo-login")){OpenSettings(true);_=LoginMimo();}
+  if(e.Args.Contains("--glass-rate-validate")){try{await Glass.GlassFrameRateValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","glass-rate-error.txt"),error.ToString());Shutdown(1);}return;}
   if(e.Args.Contains("--glass-position-validate")){try{await Glass.GlassValidation.RunPositionAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","glass-position-error.txt"),error.ToString());Shutdown(1);}}
   if(e.Args.Contains("--glass-validate")){try{await Glass.GlassValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory,"glass-validation-error.txt"),error.ToString());Shutdown(1);}}
   if(e.Args.Contains("--glass-review")){var background=Glass.GlassValidation.Background(island,true);island.Policy.SetMode(TokNotch.Core.Interaction.ExpansionMode.AlwaysExpanded);await Task.Delay(1500);background.Left=island.Left-50;await Task.Delay(700);island.Glass?.Dispose();background.Close();}

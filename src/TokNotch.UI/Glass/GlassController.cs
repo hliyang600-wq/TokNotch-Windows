@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows.Media;
 using System.Windows.Threading;
 using TokNotch.UI.Controls;
+using TokNotch.Core.Models;
 namespace TokNotch.UI.Glass;
 internal sealed class GlassController : IDisposable
 {
@@ -12,6 +13,10 @@ internal sealed class GlassController : IDisposable
  private CancellationTokenSource? cancellation;
  private Task? worker;
  private readonly ManualResetEventSlim presented=new(true);
+ private readonly AutoResetEvent cadenceChanged=new(false);
+ private readonly GlassPowerMonitor power;
+ private int frameRate=30;
+ private bool suspended;
  private bool disposed, affinity, enabled, subscribed;
  private int generation;
  private byte[]? pending;
@@ -36,7 +41,19 @@ internal sealed class GlassController : IDisposable
  public GlassController(IntPtr hwnd,IslandSurface surface)
  {
   this.hwnd=hwnd; this.surface=surface; dispatcher=surface.Dispatcher;
+  power=new(hwnd,SetSuspended);
   Enable(true);
+ }
+ internal int TargetFrameRate=>Volatile.Read(ref frameRate);
+ internal bool Suspended=>Volatile.Read(ref suspended);
+ internal void SetCadence(WindowPreferences preferences,bool expanded,bool moving)
+ {
+  var next=GlassFrameRate.Resolve(preferences,expanded,moving);
+  if(Interlocked.Exchange(ref frameRate,next)!=next)cadenceChanged.Set();
+ }
+ internal void SetSuspended(bool value)
+ {
+  Volatile.Write(ref suspended,value);cadenceChanged.Set();
  }
  internal void Enable(bool value)
  {
@@ -60,8 +77,19 @@ internal sealed class GlassController : IDisposable
  private void CaptureLoop(int current,CancellationToken token)
  {
   DesktopBackdrop? capture=null;
+  long lastCapture=0;
+  var waitHandles=new[]{token.WaitHandle,cadenceChanged};
   try {
    while(!token.IsCancellationRequested) {
+    if(Suspended) {
+     capture?.Dispose();capture=null;lastCapture=0;
+     if(WaitHandle.WaitAny(waitHandles)==0)break;
+     continue;
+    }
+    var delay=lastCapture==0?0:GlassFrameRate.DelayMilliseconds(TargetFrameRate,System.Diagnostics.Stopwatch.GetElapsedTime(lastCapture).TotalMilliseconds);
+    if(delay>0) {if(WaitHandle.WaitAny(waitHandles,delay)==0)break;if(Suspended)continue;}
+    if(lastCapture!=0&&GlassFrameRate.DelayMilliseconds(TargetFrameRate,System.Diagnostics.Stopwatch.GetElapsedTime(lastCapture).TotalMilliseconds)>0)continue;
+    lastCapture=System.Diagnostics.Stopwatch.GetTimestamp();
     var started=System.Diagnostics.Stopwatch.GetTimestamp();
     byte[]? bytes; int width,height;
     try { capture??=new DesktopBackdrop(hwnd); bytes=capture.Capture(hwnd,out width,out height); }
@@ -76,7 +104,8 @@ internal sealed class GlassController : IDisposable
     presented.Reset();
     // A single frame in flight: this buffer cannot be overwritten until the UI has copied it.
     dispatcher.BeginInvoke(DispatcherPriority.Render,()=> {
-     if(disposed||current!=generation) return;
+     if(disposed||current!=generation)return;
+     if(Suspended) {presented.Set();return;}
      pending=bytes; pendingWidth=width; pendingHeight=height;
      if(!subscribed) { CompositionTarget.Rendering+=Present; subscribed=true; }
     });
@@ -106,7 +135,7 @@ internal sealed class GlassController : IDisposable
   }
   CompositionTarget.Rendering-=Present; subscribed=false;
   try {
-   if(disposed||pending is null) return;
+   if(disposed||Suspended||pending is null) return;
    surface.SetBackdrop(pending,pendingWidth,pendingHeight);
    LastFrame=pending; LastWidth=pendingWidth; LastHeight=pendingHeight;
    Frames++; Uploads++; Status="Live DXGI / native HLSL";
@@ -128,8 +157,7 @@ internal sealed class GlassController : IDisposable
  {
   if(disposed) return; StopWorker(); disposed=true; enabled=false;
   if(affinity) SetWindowDisplayAffinity(hwnd,0); affinity=false;
-  LastFrame=null; presented.Dispose();
+  power.Dispose();LastFrame=null; presented.Dispose();cadenceChanged.Dispose();
  }
  [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] private static extern bool SetWindowDisplayAffinity(IntPtr hwnd,uint affinity);
 }
-
