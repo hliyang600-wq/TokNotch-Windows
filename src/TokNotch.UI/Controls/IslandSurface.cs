@@ -13,7 +13,7 @@ namespace TokNotch.UI.Controls;
 public sealed class IslandSurface : Grid
 {
     private readonly ImageBrush backgroundImage = new() { Stretch=Stretch.Fill, ViewboxUnits=BrushMappingMode.RelativeToBoundingBox };
-    private readonly System.Windows.Shapes.Rectangle backdrop = new() { IsHitTestVisible=false,Visibility=Visibility.Collapsed,UseLayoutRounding=false,SnapsToDevicePixels=false };
+    private readonly System.Windows.Shapes.Rectangle backdrop = new() { IsHitTestVisible=false,Visibility=Visibility.Collapsed };
     private readonly RectangleGeometry roundedClip = new();
     private readonly Border rim = new() { BorderThickness=new Thickness(1), IsHitTestVisible=false };
     private readonly Border content = new() { Background=Brushes.Transparent,Width=IslandGeometry.ExpandedWidth,Height=IslandGeometry.ExpandedHeight };
@@ -25,7 +25,6 @@ public sealed class IslandSurface : Grid
     private DockEdge dock;
     private readonly AnimatedScalar[] interaction;
     private Point pointer;
-    private Brush frostedBackground=new LinearGradientBrush(Color.FromRgb(47,45,57),Color.FromRgb(22,21,29),90);
     public UIElement? Child { get=>content.Child; set=>content.Child=value; }
     public bool SupportsGlass => glass is not null;
     internal double MaterialWidth => backdrop.Width;
@@ -38,11 +37,13 @@ public sealed class IslandSurface : Grid
         interaction=Enumerable.Range(0,6).Select(_=>new AnimatedScalar(_=>PresentShape())).ToArray();
         for(var i=0;i<6;i++)interaction[i].Set(i is 2 or 3?1:0,false);
         Unloaded+=(_,_)=>{foreach(var tween in interaction)tween.Dispose();};
-        Background = frostedBackground;
+        Background = new LinearGradientBrush(Color.FromRgb(47,45,57),Color.FromRgb(22,21,29),90);
         rim.BorderBrush = new LinearGradientBrush(Color.FromArgb(120,255,255,255),Color.FromArgb(16,255,255,255),75);
         try { glass=new LiquidGlassEffect(); backdrop.Effect=glass; } catch { }
         Children.Add(backdrop); Children.Add(rim); Children.Add(content);
         backdrop.Fill=backgroundImage; Clip=roundedClip;
+        // Smooth coverage lives in a native mask, independent of each captured shader frame.
+        OpacityMask=new DrawingBrush(new GeometryDrawing(Brushes.White,null,roundedClip)) { ViewboxUnits=BrushMappingMode.Absolute,Viewbox=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),Stretch=Stretch.Fill };
         Width=IslandGeometry.HostWidth; Height=IslandGeometry.HostHeight;
         backdrop.HorizontalAlignment=rim.HorizontalAlignment=HorizontalAlignment.Center;
         backdrop.VerticalAlignment=rim.VerticalAlignment=VerticalAlignment.Top;
@@ -50,8 +51,7 @@ public sealed class IslandSurface : Grid
     }
     public void ApplyTheme(bool light)
     {
-        frostedBackground=light?new SolidColorBrush(Color.FromRgb(234,237,244)):new LinearGradientBrush(Color.FromRgb(47,45,57),Color.FromRgb(22,21,29),90);
-        UpdateBackground();
+        Background=light?new SolidColorBrush(Color.FromRgb(234,237,244)):new LinearGradientBrush(Color.FromRgb(47,45,57),Color.FromRgb(22,21,29),90);
         rim.BorderBrush=light?new SolidColorBrush(Color.FromArgb(60,70,80,100)):new LinearGradientBrush(Color.FromArgb(120,255,255,255),Color.FromArgb(16,255,255,255),75);
         if(glass!=null)glass.Tint=light?Color.FromRgb(234,237,244):Color.FromRgb(19,18,24);
     }
@@ -66,7 +66,6 @@ public sealed class IslandSurface : Grid
         content.Effect=enabled&&!settings.OverLight?new DropShadowEffect{Color=Colors.Black,Opacity=.4,BlurRadius=12,ShadowDepth=2,Direction=270}:null;
         rim.Opacity=enabled?0:1;PresentShape();
         backdrop.Visibility=enabled&&bitmap is not null?Visibility.Visible:Visibility.Collapsed;
-        UpdateBackground();
     }
     internal void SetInteraction(Point point,bool hovered,bool pressed,bool animate)
     {
@@ -101,8 +100,6 @@ public sealed class IslandSurface : Grid
         if(bitmap is null||bitmap.PixelWidth!=width||bitmap.PixelHeight!=height) { bitmap=new WriteableBitmap(width,height,96,96,PixelFormats.Bgr32,null); backgroundImage.ImageSource=bitmap; BitmapAllocations++; }
         bitmap.WritePixels(new Int32Rect(0,0,width,height),pixels,width*4,0);
         backdrop.Visibility=materialEnabled?Visibility.Visible:Visibility.Collapsed;
-        UpdateBackground();
     }
-    private void UpdateBackground()=>Background=materialEnabled&&bitmap is not null?Brushes.Transparent:frostedBackground;
-    internal void ClearBackdrop() { backgroundImage.ImageSource=null; bitmap=null;backdrop.Visibility=Visibility.Collapsed;UpdateBackground(); }
+    internal void ClearBackdrop() { backgroundImage.ImageSource=null; bitmap=null;backdrop.Visibility=Visibility.Collapsed; }
 }
