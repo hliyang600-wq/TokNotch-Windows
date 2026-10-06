@@ -5,11 +5,20 @@ namespace TokNotch.UI;
 /// <summary>Proves the automatic refresh loop really runs, publishes newer snapshots and reacts to an interval change.</summary>
 internal static class RefreshValidation
 {
- internal static async Task RunAsync(IslandViewModel model,Func<CancellationToken,Task> refresh)
+ internal static async Task RunAsync(IslandWindow island,IslandViewModel model,Func<CancellationToken,Task> refresh)
  {
   var output=ApplicationPaths.ArtifactsDirectory;Directory.CreateDirectory(output);
   var checks=new List<string>();
   void Check(bool ok,string label){if(!ok)throw new Exception(label);checks.Add(label);}
+  var ring=(System.Windows.Controls.Button)island.FindName("RingRefreshButton");
+  var mode=island.Policy.Mode;var target=island.Policy.TargetExpanded;
+  var beforeClick=model.Snapshot?.GeneratedAt??DateTimeOffset.MinValue;
+  var click=new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent);
+  ring.RaiseEvent(click);
+  Check(click.Handled&&!ring.IsEnabled,"ring click is handled and disables repeated clicks during refresh");
+  for(int i=0;i<200&&!ring.IsEnabled;i++)await Task.Delay(20);
+  Check(ring.IsEnabled&&model.Snapshot?.GeneratedAt>beforeClick,"ring click invokes the existing immediate refresh and restores the button");
+  Check(island.Policy.Mode==mode&&island.Policy.TargetExpanded==target,"ring refresh does not toggle expansion or change the interaction mode");
   var scheduler=new RefreshScheduler(refresh){Interval=TimeSpan.FromMinutes(30)};
   using var stop=new CancellationTokenSource();
   var loop=scheduler.Start(stop.Token);
@@ -38,4 +47,3 @@ internal static class RefreshValidation
   await File.WriteAllLinesAsync(Path.Combine(output,"refresh-checks.txt"),checks);
  }
 }
-

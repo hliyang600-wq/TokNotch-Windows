@@ -26,6 +26,7 @@ public partial class IslandWindow : Window
  private NativeMethods.Rect _dragStart;
  public event Action<WindowPreferences>? PositionChanged;
  public event Action? SettingsRequested;
+ public event Func<Task>? RefreshRequested;
  public IslandStateController Policy { get; }
  public IslandMorphController Morph { get; }
  public NativeWindowService? Native { get; private set; }
@@ -50,6 +51,13 @@ public partial class IslandWindow : Window
   Closed += (_, _) => { _follow.Stop();Glass?.Dispose(); Morph.Dispose(); Policy.Dispose();PositionChanged=null; };
  }
  private void OpenSettings(object sender,RoutedEventArgs args){args.Handled=true;SettingsRequested?.Invoke();}
+ private async void RefreshRing(object sender,RoutedEventArgs args)
+ {
+  args.Handled=true;if(!RingRefreshButton.IsEnabled)return;
+  RingRefreshButton.IsEnabled=false;
+  try{if(RefreshRequested is {} refresh)await refresh();}
+  finally{RingRefreshButton.IsEnabled=true;}
+ }
  private static bool WithinButton(DependencyObject? item){while(item!=null){if(item is Button)return true;item=item is System.Windows.Documents.Run run?run.Parent:VisualTreeHelper.GetParent(item);}return false;}
  private void SelectProvider(object sender, RoutedEventArgs args) { if (sender is Button button && button.Tag is Provider provider) ((IslandViewModel)DataContext).Select(provider); args.Handled = true; }
  private IntPtr Hook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
