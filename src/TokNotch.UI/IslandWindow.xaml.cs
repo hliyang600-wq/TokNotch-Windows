@@ -46,7 +46,7 @@ public partial class IslandWindow : Window
   LostMouseCapture+=(_,_)=>{if(_mouseDown){_mouseDown=false;_dragging=false;ApplyMorph(Morph.ShapeProgress);Policy.PointerLeave();}};
   _follow.Tick+=(_,_)=>{if(!_mouseDown&&!Policy.TargetExpanded){var area=_monitors.Resolve(_window);if(area.Device!=_area?.Device){_area=area;ApplyMorph(Morph.ShapeProgress);}}};
   SourceInitialized += (_, _) => { var source = (HwndSource)PresentationSource.FromVisual(this); Native = new(source.Handle); Native.Configure(); source.AddHook(Hook); ApplyMorph(0); };
-  Loaded += (_, _) => { if(enableGlass) Glass = new(Native!.Handle, Surface);ApplyPreferences(model.Preferences); };
+  Loaded += (_, _) => { if(enableGlass) Glass = new(Native!.Handle, Surface,model.Preferences.GlassEnabled);ApplyPreferences(model.Preferences); };
   Closed += (_, _) => { _follow.Stop();Glass?.Dispose(); Morph.Dispose(); Policy.Dispose();PositionChanged=null; };
  }
  private void OpenSettings(object sender,RoutedEventArgs args){args.Handled=true;SettingsRequested?.Invoke();}

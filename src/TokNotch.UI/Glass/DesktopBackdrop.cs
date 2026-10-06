@@ -22,6 +22,7 @@ internal sealed class DesktopBackdrop : IDisposable
  internal int Readbacks { get; private set; }
  internal int TextureAllocations { get; private set; }
  internal int SkippedFrames { get; private set; }
+ internal int MonitorQueries { get; private set; }
  public DesktopBackdrop(IntPtr hwnd)
  {
   try { Initialize(hwnd); } catch { Dispose(); throw; }
@@ -30,6 +31,7 @@ internal sealed class DesktopBackdrop : IDisposable
  {
   if(!GetWindowRect(hwnd,out var bounds))throw new InvalidOperationException("Cannot obtain island bounds.");
   outputDevice=new TokNotch.Infrastructure.Windows.MonitorService().AtPoint((bounds.Left+bounds.Right)/2,(bounds.Top+bounds.Bottom)/2).Device;
+  MonitorQueries++;
   IntPtr factory=IntPtr.Zero, adapter=IntPtr.Zero, output=IntPtr.Zero, output1=IntPtr.Zero;
   try {
    var iid=new Guid("770aae78-f26f-4dba-a829-253c83d1b387");Check(CreateDXGIFactory1(in iid,out factory),"CreateDXGIFactory1");
@@ -55,8 +57,13 @@ internal sealed class DesktopBackdrop : IDisposable
  {
   if(!GetWindowRect(hwnd,out var rect)) throw new InvalidOperationException("Cannot obtain island bounds.");
   captureWidth=rect.Right-rect.Left;captureHeight=rect.Bottom-rect.Top;
-  var currentDevice=new TokNotch.Infrastructure.Windows.MonitorService().AtPoint((rect.Left+rect.Right)/2,(rect.Top+rect.Bottom)/2).Device;
-  if(currentDevice!=outputDevice)throw new COMException("Island moved to another output.",unchecked((int)0x887A0026));
+  // DXGI already supplies the output bounds. Only resolve a monitor after leaving them.
+  int centerX=(rect.Left+rect.Right)/2,centerY=(rect.Top+rect.Bottom)/2;
+  if(centerX<outputBounds.Left||centerX>=outputBounds.Right||centerY<outputBounds.Top||centerY>=outputBounds.Bottom) {
+   MonitorQueries++;
+   var currentDevice=new TokNotch.Infrastructure.Windows.MonitorService().AtPoint(centerX,centerY).Device;
+   if(currentDevice!=outputDevice)throw new COMException("Island moved to another output.",unchecked((int)0x887A0026));
+  }
   // During dragging, retain the last frame while the host straddles an output boundary.
   if(captureWidth<1||captureHeight<1||rect.Left<outputBounds.Left||rect.Top<outputBounds.Top||rect.Right>outputBounds.Right||rect.Bottom>outputBounds.Bottom){Thread.Sleep(30);return null;}
   IntPtr resource=IntPtr.Zero, texture=IntPtr.Zero; bool acquired=false,mapped=false;
@@ -111,4 +118,3 @@ internal sealed class DesktopBackdrop : IDisposable
  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd,out RectI rect);
  [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
 }
-

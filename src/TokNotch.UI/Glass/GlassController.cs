@@ -25,7 +25,7 @@ internal sealed class GlassController : IDisposable
  private double lastUploadSeconds;
  private readonly System.Diagnostics.Stopwatch clock=System.Diagnostics.Stopwatch.StartNew();
  internal List<double>? ValidationUploadTimes { get; set; }
- public string Status { get; private set; }="Starting";
+ public string Status { get; private set; }="Frosted / recordable";
  public int Frames { get; private set; }
  public int Uploads { get; private set; }
  public int Readbacks { get; private set; }
@@ -35,14 +35,16 @@ internal sealed class GlassController : IDisposable
  internal double CaptureMilliseconds { get; private set; }
  internal double PresentationWaitMilliseconds { get; private set; }
  internal int CaptureCalls { get; private set; }
+ internal int MonitorQueries { get; private set; }
+ internal bool CaptureActive=>worker is not null;
  internal byte[]? LastFrame { get; private set; }
  internal int LastWidth { get; private set; }
  internal int LastHeight { get; private set; }
- public GlassController(IntPtr hwnd,IslandSurface surface)
+ public GlassController(IntPtr hwnd,IslandSurface surface,bool initialGlass)
  {
   this.hwnd=hwnd; this.surface=surface; dispatcher=surface.Dispatcher;
   power=new(hwnd,SetSuspended);
-  Enable(true);
+  Enable(initialGlass);
  }
  internal int TargetFrameRate=>Volatile.Read(ref frameRate);
  internal bool Suspended=>Volatile.Read(ref suspended);
@@ -98,7 +100,7 @@ internal sealed class GlassController : IDisposable
      capture?.Dispose(); capture=null; token.WaitHandle.WaitOne(50); continue;
     }
     CaptureMilliseconds+=System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds; CaptureCalls++;
-    Readbacks=capture.Readbacks; TextureAllocations=capture.TextureAllocations; SkippedFrames=capture.SkippedFrames;
+    Readbacks=capture.Readbacks; TextureAllocations=capture.TextureAllocations; SkippedFrames=capture.SkippedFrames;MonitorQueries=capture.MonitorQueries;
     if(bytes is null) continue;
     token.ThrowIfCancellationRequested();
     presented.Reset();

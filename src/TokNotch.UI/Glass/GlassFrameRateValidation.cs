@@ -22,9 +22,10 @@ internal static class GlassFrameRateValidation
     var rate=new GlassFrameRate(GlassFrameRateMode.Custom,fps);
     island.ApplyPreferences(DisplayPreferences.Default.WithWindow(new(ExpandedGlassRate:rate,CollapsedGlassRate:new(GlassFrameRateMode.Fps15))));
     island.Policy.SetMode(ExpansionMode.AlwaysExpanded);Check(glass.TargetFrameRate==fps,"expanded idle state selects "+fps+" FPS");
-    await Task.Delay(250);var calls=glass.CaptureCalls;var uploads=glass.Uploads;var watch=Stopwatch.StartNew();await Task.Delay(1600);var seconds=watch.Elapsed.TotalSeconds;
+    await Task.Delay(250);var calls=glass.CaptureCalls;var uploads=glass.Uploads;var queries=glass.MonitorQueries;var watch=Stopwatch.StartNew();await Task.Delay(1600);var seconds=watch.Elapsed.TotalSeconds;
     int count=glass.CaptureCalls-calls,presentations=glass.Uploads-uploads;
-    results.Add(new{RequestedFps=fps,Seconds=seconds,CaptureCalls=count,Uploads=presentations,glass.Status});
+    results.Add(new{RequestedFps=fps,Seconds=seconds,CaptureCalls=count,Uploads=presentations,MonitorQueries=glass.MonitorQueries-queries,glass.Status});
+    Check(glass.MonitorQueries==queries,"steady capture performs no per-frame monitor lookup at "+fps+" FPS");
     Check(count<=Math.Ceiling(seconds*fps)+2&&presentations>3,"actual sampling respects "+fps+" FPS cap and keeps updating");
    }
    island.ApplyPreferences(DisplayPreferences.Default.WithWindow(new(ExpandedGlassRate:new(GlassFrameRateMode.Display),CollapsedGlassRate:new(GlassFrameRateMode.Fps15))));
@@ -37,6 +38,12 @@ internal static class GlassFrameRateValidation
    glass.SetSuspended(true);await Task.Delay(200);var before=glass.CaptureCalls;var beforeUploads=glass.Uploads;await Task.Delay(400);
    Check(glass.CaptureCalls==before&&glass.Uploads==beforeUploads,"suspension stops capture and presentation");
    glass.SetSuspended(false);await Task.Delay(1000);Check(glass.CaptureCalls>before&&glass.Uploads>beforeUploads,"resume recreates capture and updates the backdrop");
+   glass.Enable(false);var stopped=glass.CaptureCalls;await Task.Delay(200);Check(!glass.CaptureActive&&glass.CaptureCalls==stopped,"frosted material has no running capture worker");
+   glass.Enable(true);await Task.Delay(700);Check(glass.CaptureActive&&glass.CaptureCalls>stopped,"switching back to glass restarts capture");
+   var frostedModel=new ViewModels.IslandViewModel();var defaults=DisplayPreferences.Default;
+   frostedModel.Configure(new(defaults.Providers,defaults.Metrics,glassEnabled:false));
+   var frosted=new IslandWindow(frostedModel);
+   try{frosted.Show();await Task.Delay(150);Check(frosted.Glass is {CaptureActive:false,CaptureCalls:0},"frosted startup never creates a capture worker");}finally{frosted.Close();}
   }finally {
    timer.Stop();glass.SetSuspended(false);background.Close();
    var output=ApplicationPaths.ArtifactsDirectory;Directory.CreateDirectory(output);
