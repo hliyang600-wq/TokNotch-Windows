@@ -4,6 +4,8 @@ Windows 原生 AI 用量悬浮岛，使用 WPF、DXGI 和 HLSL 实现液态玻�
 
 ## 功能
 
+- 单实例运行：重复启动展开已有悬浮岛，设置入口会转交给已有实例。
+
 - Codex 与 DSH 本地日志用量统计；Codex 可显示日志中记录的五小时、每周剩余额度。
 - DeepSeek API 余额查询；DSH 的余额圆环可绑定 DeepSeek 账户。DeepSeek token 用量来自本机日志，余额接口不提供完整账户 token 用量。
 - Kimi API 余额、MiMo 登录会话用量查询，具体可用字段以服务返回为准。

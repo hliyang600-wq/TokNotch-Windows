@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $dotnet = & "$PSScriptRoot\RuntimePath.ps1"
 Push-Location $PSScriptRoot
 try {
-    foreach ($project in @('tests/TokNotch.Tests', 'tests/DataTests')) {
+    foreach ($project in @('tests/TokNotch.Tests', 'tests/DataTests', 'tests/SingleInstanceTests')) {
         & $dotnet run --project $project -c Release --no-build
         if ($LASTEXITCODE -ne 0) { throw "Checks failed: $project" }
     }

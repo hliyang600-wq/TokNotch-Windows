@@ -1,4 +1,5 @@
 using TokNotch.Infrastructure.Authentication;
+using TokNotch.Infrastructure.Lifecycle;
 using TokNotch.UI.Authentication;
 using System.Threading;
 using System.Windows;
@@ -12,6 +13,7 @@ namespace TokNotch.UI;
 public partial class App : Application
 {
  private TrayService? tray;
+ private SingleInstanceCoordinator? singleInstance;
  private readonly CancellationTokenSource stop=new();
  private readonly SemaphoreSlim refreshGate=new(1,1);
  private readonly LocalUsageSource logs=new();
@@ -29,6 +31,12 @@ public partial class App : Application
  private readonly DisplayPreferencesStore preferencesStore=new(ApplicationPaths.DataRoot);
  protected override async void OnStartup(StartupEventArgs e)
  {
+  bool diagnostic=e.Args.Any(a=>a is "--validate" or "--live-validate" or "--glass-validate" or "--glass-position-validate" or "--auth-validate" or "--data-validate" or "--balance-validate" or "--glass-review");
+  if(!diagnostic)
+  {
+   singleInstance=new(request=>{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(()=>ActivateExisting(request)));});
+   if(!singleInstance.IsPrimary){await singleInstance.NotifyAsync(SingleInstanceCoordinator.ParseRequest(e.Args));Shutdown();return;}
+  }
   base.OnStartup(e);if(e.Args.Contains("--auth-validate")){try{await AuthenticationValidation.RunAsync();Shutdown();}catch(Exception error){var report=Path.Combine(ApplicationPaths.ArtifactsDirectory,"authentication-webview-error.txt");await File.WriteAllTextAsync(report,error.GetType().Name+" HRESULT "+error.HResult.ToString("X")+" "+error.Message);Shutdown(1);}return;}
   if(e.Args.Contains("--data-validate")){var data=await Task.Run(()=>logs.Read());var output=ApplicationPaths.ArtifactsDirectory;Directory.CreateDirectory(output);await File.WriteAllTextAsync(Path.Combine(output,"real-data.json"),System.Text.Json.JsonSerializer.Serialize(data.Vendors.Select(v=>new{v.Title,v.Detection,Today=v.Today.Tokens.Total,Month=v.Month.Tokens.Total,AllTime=v.AllTime.Tokens.Total,v.SourceStatus}),new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));Shutdown();return;}
   var model=new IslandViewModel();var source=new MockUsageSource();bool demo=e.Args.Any(a=>a is "--validate" or "--glass-validate" or "--glass-position-validate" or "--glass-review");
@@ -52,6 +60,15 @@ public partial class App : Application
   if(e.Args.Contains("--glass-validate")){try{await Glass.GlassValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory,"glass-validation-error.txt"),error.ToString());Shutdown(1);}}
   if(e.Args.Contains("--glass-review")){var background=Glass.GlassValidation.Background(island,true);island.Policy.SetMode(TokNotch.Core.Interaction.ExpansionMode.AlwaysExpanded);await Task.Delay(1500);background.Left=island.Left-50;await Task.Delay(700);island.Glass?.Dispose();background.Close();}
   if(e.Args.Contains("--validate")){try{await Validation.RunAsync(island,model,source);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory,"validation-error.txt"),error.ToString());Shutdown(1);}}
+ }
+ private void ActivateExisting(LaunchRequest request)
+ {
+  if(shell is null)return;
+  shell.Show();NativeShow(shell.Native!.Handle,4);shell.Policy.ShowExpanded();
+  if(request==LaunchRequest.Show)return;
+  OpenSettings(request is LaunchRequest.Connections or LaunchRequest.MimoLogin);
+  if(request==LaunchRequest.Appearance)settingsWindow?.ShowAppearancePage();
+  if(request==LaunchRequest.MimoLogin)_=LoginMimo();
  }
  private void OpenSettings(bool connections=false)
  {
@@ -112,9 +129,7 @@ public partial class App : Application
   catch(Exception){if(liveModel.Snapshot is {} last)liveModel.Apply(new(last.GeneratedAt,last.LastSuccessAt,last.BucketTimeZone,false,RefreshState.Failed,last.Vendors,last.Models,"刷新失败 · 显示上次数据"));}
   finally{refreshGate.Release();}
  }
- protected override void OnExit(ExitEventArgs e){stop.Cancel();loginWindow?.Close();settingsWindow?.Close();kimi.Dispose();mimo.Dispose();deepSeek.Dispose();tray?.Dispose();base.OnExit(e);}
+ protected override void OnExit(ExitEventArgs e){stop.Cancel();loginWindow?.Close();settingsWindow?.Close();kimi.Dispose();mimo.Dispose();deepSeek.Dispose();tray?.Dispose();singleInstance?.Dispose();base.OnExit(e);}
  [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="ShowWindow")]
  private static extern bool NativeShow(IntPtr handle,int command);
 }
-
-
