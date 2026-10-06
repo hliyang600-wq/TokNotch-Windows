@@ -11,7 +11,7 @@ TokNotch Windows project code is provided under the root MIT LICENSE. Dependenci
 
 ## Design references
 
-The native glass appearance was informed by [liquid-glass-react](https://github.com/rdev/liquid-glass-react), reference revision `ac48eab18d1f7f444ae30002d240cae29c863a21`, copyright 2025 MAX ROVENSKY, MIT. Its complete license is retained in LICENSES/liquid-glass-react-MIT.txt. This Windows application uses C#, DXGI capture and HLSL; it does not bundle or execute the React component or its demo dependencies.
+The native glass material ports the displacement maps, RGB aberration, four refraction modes, directional elasticity and highlight algorithms from [liquid-glass-react](https://github.com/rdev/liquid-glass-react), reference revision `ac48eab18d1f7f444ae30002d240cae29c863a21`, copyright 2025 MAX ROVENSKY, MIT. Its complete license is retained in LICENSES/liquid-glass-react-MIT.txt. The original displacement images are bundled as WPF resources. Shader-mode mathematics also derive from [shuding/liquid-glass](https://github.com/shuding/liquid-glass), copyright 2025 Shu Ding, MIT; its complete license is included in LICENSES/shuding-liquid-glass-LICENSE.txt. This Windows application uses C#, DXGI capture and HLSL; it does not execute the React component or bundle its demo dependencies.
 
 The floating island concept was also informed by [TokNotch](https://github.com/ReffWu/toknotch). TokNotch Windows is an independent implementation and is not an official release of that project or of the AI services it displays.
 

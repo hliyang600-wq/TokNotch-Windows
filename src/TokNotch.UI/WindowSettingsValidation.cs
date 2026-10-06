@@ -22,6 +22,9 @@ internal static class WindowSettingsValidation
    settings.Show();await Task.Delay(80);island.MotionPreferenceOverride=false;
    var appearance=(Button)settings.FindName("AppearanceTab");appearance.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
    Check(((FrameworkElement)settings.FindName("AppearancePage")).Visibility==Visibility.Visible&&((FrameworkElement)settings.FindName("DisplayPage")).Visibility==Visibility.Collapsed,"appearance has an independent settings page");
+   ((ComboBox)settings.FindName("GlassMode")).SelectedIndex=3;((Slider)settings.FindName("GlassDisplacement")).Value=83;((Slider)settings.FindName("GlassBlur")).Value=.3;((CheckBox)settings.FindName("GlassOverLight")).IsChecked=true;
+   Check(settings.Draft.Window.Glass.Mode==RefractionMode.Shader&&settings.Draft.Window.Glass.Displacement==83&&settings.Draft.Window.Glass.Blur==.3&&settings.Draft.Window.Glass.OverLight,"full glass controls reach the validated settings draft");
+   ((ComboBox)settings.FindName("GlassMode")).SelectedIndex=0;((Slider)settings.FindName("GlassDisplacement")).Value=70;((Slider)settings.FindName("GlassBlur")).Value=.0625;((CheckBox)settings.FindName("GlassOverLight")).IsChecked=false;
    var expandedRate=(ComboBox)settings.FindName("ExpandedRateBox");var collapsedRate=(ComboBox)settings.FindName("CollapsedRateBox");var customRate=(TextBox)settings.FindName("ExpandedCustomFps");
    Check(expandedRate.Items.Count==5&&collapsedRate.Items.Count==5,"both glass selectors expose exactly five requested choices");
    expandedRate.SelectedIndex=3;customRate.Text="47";collapsedRate.SelectedIndex=0;

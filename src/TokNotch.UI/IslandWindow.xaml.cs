@@ -44,6 +44,10 @@ public partial class IslandWindow : Window
   Morph.Settled += expanded=>{Policy.AnimationSettled(expanded);UpdateGlassCadence();};
   MouseEnter += (_, _) => {if(!_mouseDown)Policy.PointerEnter();}; MouseLeave += (_, _) => {if(!_mouseDown)Policy.PointerLeave();};
   MouseLeftButtonDown += PointerDown;MouseMove+=PointerMove;MouseLeftButtonUp+=PointerUp;
+  MouseMove+=(_,args)=>MaterialPointer(args.GetPosition(Surface),IsMouseOver,args.LeftButton==MouseButtonState.Pressed);
+  MouseLeave+=(_,_)=>MaterialPointer(new(),false,false);
+  PreviewMouseLeftButtonDown+=(_,args)=>MaterialPointer(args.GetPosition(Surface),true,true);
+  PreviewMouseLeftButtonUp+=(_,args)=>MaterialPointer(args.GetPosition(Surface),IsMouseOver,false);
   LostMouseCapture+=(_,_)=>{if(_mouseDown){_mouseDown=false;_dragging=false;ApplyMorph(Morph.ShapeProgress);Policy.PointerLeave();}};
   _follow.Tick+=(_,_)=>{if(!_mouseDown&&!Policy.TargetExpanded){var area=_monitors.Resolve(_window);if(area.Device!=_area?.Device){_area=area;ApplyMorph(Morph.ShapeProgress);}}};
   SourceInitialized += (_, _) => { var source = (HwndSource)PresentationSource.FromVisual(this); Native = new(source.Handle); Native.Configure(); source.AddHook(Hook); ApplyMorph(0); };
@@ -75,6 +79,7 @@ public partial class IslandWindow : Window
  public void ApplyPreferences(DisplayPreferences preferences)
  {
   var changed=_window.Animation!=preferences.Window.Animation;_window=preferences.Window;_area=_monitors.Resolve(_window);
+  Surface.ConfigureMaterial(_window.Glass,preferences.GlassEnabled);Surface.SetInteraction(new(),false,false,false);
   Policy.SetCollapseDelay(TimeSpan.FromMilliseconds(_window.CollapseDelayMilliseconds));Policy.SetMode(preferences.Expansion);
   if(ReduceMotion)Morph.SetImmediate(Policy.TargetExpanded);
   else if(changed&&Morph.IsRunning)Morph.Animate(Policy.TargetExpanded,false,_window.Animation==AnimationMode.Reduced);
@@ -83,6 +88,10 @@ public partial class IslandWindow : Window
   ApplyTheme();Glass?.Enable(preferences.GlassEnabled);UpdateGlassCadence();
  }
  private void ApplyTheme(){ThemeManager.Apply(_window.Theme);Surface.ApplyTheme(ThemeManager.IsLight);((IslandViewModel)DataContext).RefreshTheme();UsageRing.InvalidateVisual();}
+ private void MaterialPointer(Point point,bool hover,bool pressed)
+ {
+  var rect=Surface.Clip.Bounds;Surface.SetInteraction(new Point(point.X-rect.X-rect.Width/2,point.Y-rect.Y-rect.Height/2),hover,pressed,!ReduceMotion&&!Morph.IsRunning&&!_dragging);
+ }
  private void PointerDown(object sender,MouseButtonEventArgs args)
  {
   if(WithinButton(args.OriginalSource as DependencyObject))return;
