@@ -21,7 +21,8 @@ internal static class FullGlassValidation
    var frameWidth=island.Glass.LastWidth;var frameHeight=island.Glass.LastHeight;
    island.Glass.Dispose(); // Freeze our authored backdrop, then capture the actual GPU-rendered island.
    using var capture=new DesktopBackdrop(island.Native!.Handle);
-   async Task<byte[]> Shot(string name,GlassMaterial material){surface.ConfigureMaterial(material,true);await Task.Delay(300);var bytes=capture.Capture(island.Native.Handle,out var w,out var h)??throw new InvalidOperationException("GPU screenshot unavailable");var bitmap=BitmapSource.Create(w,h,96,96,PixelFormats.Bgr32,null,bytes,w*4);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var file=File.Create(Path.Combine(output,name+".png"));encoder.Save(file);return bytes.ToArray();}
+   byte[]? previousShot=null;
+   async Task<byte[]> Shot(string name,GlassMaterial material){surface.ConfigureMaterial(material,true);await Task.Delay(300);var bytes=capture.Capture(island.Native.Handle,out var w,out var h)??previousShot??throw new InvalidOperationException("GPU screenshot unavailable");var bitmap=BitmapSource.Create(w,h,96,96,PixelFormats.Bgr32,null,bytes,w*4);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var file=File.Create(Path.Combine(output,name+".png"));encoder.Save(file);previousShot=bytes.ToArray();return previousShot;}
    void Different(byte[] a,byte[] b,string label){double delta=0;for(int i=0;i<a.Length;i++)if(i%4!=3)delta+=Math.Abs(a[i]-b[i]);if(delta/a.Length<.03)throw new InvalidOperationException("Effect did not change actual GPU pixels: "+label);checks.Add(label);}
    var baseline=await Shot("standard",new());
    foreach(var mode in new[]{RefractionMode.Polar,RefractionMode.Prominent,RefractionMode.Shader})Different(baseline,await Shot(mode.ToString().ToLowerInvariant(),new(Mode:mode)),"GPU refraction "+mode);
@@ -31,6 +32,22 @@ internal static class FullGlassValidation
    surface.SetInteraction(new Point(150,25),true,true,true);await Task.Delay(400);Different(hover,await Shot("press",new()),"press response");
    if(((FrameworkElement)island.FindName("Expanded")).TranslatePoint(new(),island)!=anchor)throw new InvalidOperationException("Text anchor moved with material.");checks.Add("text anchor stays fixed during material stretch");
    surface.SetInteraction(new(),false,false,true);await Task.Delay(450);if(Animations.AnimationClock.Current.ActiveCount!=0)throw new InvalidOperationException("Material animations remain active at idle.");checks.Add("material animation subscriptions stop at idle");
+   surface.Child!.Visibility=Visibility.Hidden;
+   foreach(var shape in new[]{(180d,32d,16d),(280d,126d,22d),(380d,220d,28d)})foreach(var edge in Enum.GetValues<DockEdge>()){
+    surface.SetShape(shape.Item1,shape.Item2,shape.Item3,edge);var mask=surface.OpacityMask;
+    var masked=await Shot("mask-"+edge+"-"+(int)shape.Item1,new(TintOpacity:1));surface.OpacityMask=null;
+    var plain=await Shot("plain-"+edge+"-"+(int)shape.Item1,new(TintOpacity:1));surface.OpacityMask=mask;
+    var dpi=VisualTreeHelper.GetDpi(island).DpiScaleX;var imageWidth=(int)Math.Round(island.Width*dpi);double delta=0;int count=0;int missing=0;
+    var centerX=edge==DockEdge.Left?shape.Item1/2:edge==DockEdge.Right?IslandGeometry.HostWidth-shape.Item1/2:IslandGeometry.HostWidth/2;var centerY=edge==DockEdge.Top?shape.Item2/2:edge==DockEdge.Bottom?IslandGeometry.HostHeight-shape.Item2/2:IslandGeometry.HostHeight/2;
+    for(int y=0;y<IslandGeometry.HostHeight*dpi;y++)for(int x=0;x<imageWidth;x++){
+     var qx=Math.Abs((x+.5)/dpi-centerX)-(shape.Item1/2-shape.Item3);var qy=Math.Abs((y+.5)/dpi-centerY)-(shape.Item2/2-shape.Item3);
+     var d=Math.Sqrt(Math.Pow(Math.Max(qx,0),2)+Math.Pow(Math.Max(qy,0),2))+Math.Min(Math.Max(qx,qy),0)-shape.Item3;
+     if(d>=-4)continue;var index=(y*imageWidth+x)*4;double difference=0;for(int c=0;c<3;c++)difference+=Math.Abs(masked[index+c]-plain[index+c]);delta+=difference/3;count++;if(difference>9)missing++;
+    }
+    var mean=delta/count;checks.Add("mask interior "+edge+" "+shape.Item1+"x"+shape.Item2+": mean="+mean.ToString("0.###")+", altered="+missing+"/"+count);
+    await File.WriteAllLinesAsync(Path.Combine(output,"mask-interior-checks.txt"),checks);
+    if(mean>.5)throw new InvalidOperationException("Mask crops opaque interior at "+shape.Item1+": "+mean);
+   }
    if(surface.OpacityMask is not DrawingBrush||surface.Background==Brushes.Transparent)throw new InvalidOperationException("Native edge mask or stable material underlay missing.");
    checks.Add("native edge mask keeps the opaque material drawing path");
    var steady=await Shot("steady-mask",new(TintOpacity:1));var pixels=new byte[frameWidth*frameHeight*4];int tick=0,samples=0;double worst=0;

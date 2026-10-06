@@ -43,7 +43,7 @@ public sealed class IslandSurface : Grid
         Children.Add(backdrop); Children.Add(rim); Children.Add(content);
         backdrop.Fill=backgroundImage; Clip=roundedClip;
         // Smooth coverage lives in a native mask, independent of each captured shader frame.
-        OpacityMask=new DrawingBrush(new GeometryDrawing(Brushes.White,null,roundedClip)) { ViewboxUnits=BrushMappingMode.Absolute,Viewbox=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),Stretch=Stretch.Fill };
+        OpacityMask=new DrawingBrush(new GeometryDrawing(Brushes.White,null,roundedClip)) { ViewportUnits=BrushMappingMode.Absolute,Viewport=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),ViewboxUnits=BrushMappingMode.Absolute,Viewbox=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),Stretch=Stretch.Fill };
         Width=IslandGeometry.HostWidth; Height=IslandGeometry.HostHeight;
         backdrop.HorizontalAlignment=rim.HorizontalAlignment=HorizontalAlignment.Center;
         backdrop.VerticalAlignment=rim.VerticalAlignment=VerticalAlignment.Top;
