@@ -40,7 +40,8 @@ public sealed class RingChart : FrameworkElement
     private static Pen MakeTrack(double thickness, byte alpha) { var brush = new SolidColorBrush(Color.FromArgb(alpha, 255, 255, 255)); brush.Freeze(); var pen = new Pen(brush, thickness); pen.Freeze(); return pen; }
     private static void Changed(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).Update(false);
     private static void InnerChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).UpdateInner(false);
-    private static void IdentityChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) { var ring = (RingChart)element; ring.Update(true); ring.UpdateInner(true); }
+    private static void IdentityChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).Replay();
+    internal void Replay() { Update(true); UpdateInner(true); }
     private void Update(bool reset)
     {
         _animation ??= new AnimatedScalar(value => { _displayed = value; InvalidateVisual(); });
@@ -93,4 +94,3 @@ public sealed class RingChart : FrameworkElement
         path.Freeze();dc.PushOpacity(.16);dc.DrawGeometry(null,halo,path);dc.Pop();dc.DrawGeometry(null, pen, path);
     }
 }
-
