@@ -1,0 +1,9 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="TextPrimary" Color="#F4F3F1" />
+  <SolidColorBrush x:Key="TextSecondary" Color="#AAA8AF" />
+  <SolidColorBrush x:Key="TextMuted" Color="#73717B" />
+  <SolidColorBrush x:Key="SoftBorder" Color="#24FFFFFF" />
+  <SolidColorBrush x:Key="ClaudeAccent" Color="#DB9B7E" />
+  <SolidColorBrush x:Key="CodexAccent" Color="#8EBEAE" />
+  <SolidColorBrush x:Key="GeminiAccent" Color="#B4A6D4" />
+</ResourceDictionary>
