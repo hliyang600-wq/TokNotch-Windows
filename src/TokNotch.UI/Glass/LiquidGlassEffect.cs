@@ -11,7 +11,7 @@ namespace TokNotch.UI.Glass;
 // See Licenses/liquid-glass-react-MIT.txt and shuding-liquid-glass-LICENSE.txt.
 public sealed class LiquidGlassEffect : ShaderEffect
 {
- public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(LiquidGlassEffect), 0);
+ public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(LiquidGlassEffect), 0,SamplingMode.Bilinear);
  public static readonly DependencyProperty DimensionsProperty = DependencyProperty.Register("Dimensions", typeof(Point), typeof(LiquidGlassEffect), new UIPropertyMetadata(new Point(380,220), PixelShaderConstantCallback(0)));
  public static readonly DependencyProperty RadiusProperty = DependencyProperty.Register("Radius", typeof(double), typeof(LiquidGlassEffect), new UIPropertyMetadata(28d, PixelShaderConstantCallback(1)));
  public static readonly DependencyProperty TintProperty = DependencyProperty.Register("Tint",typeof(Color),typeof(LiquidGlassEffect),new UIPropertyMetadata(Color.FromRgb(19,18,24),PixelShaderConstantCallback(2)));
@@ -117,7 +117,10 @@ public sealed class LiquidGlassEffect : ShaderEffect
    color=lerp(color,saturate(color*2),saturate(1-radial)*(hovered>.01?.4*hovered:.8*pressed));
    float inset=(1-smoothstep(0,.5,-d))*.5+(1-smoothstep(.5,3,-d))*.08;
    color=1-(1-color)*(1-inset);
-   return float4(saturate(color),1);
+   // Derivatives measure a physical pixel even at fractional DPI and during elastic morphs.
+   // WPF expects premultiplied alpha; an opaque parent fill would hide this coverage ramp.
+   float coverage=saturate(.5-d/max(fwidth(d),.0001));
+   return float4(saturate(color)*coverage,coverage);
  }
  """;
  internal static byte[] Compile()
