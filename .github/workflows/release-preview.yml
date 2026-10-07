@@ -1,0 +1,52 @@
+name: Publish v0.2.0 preview
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-preview.yml, .github/release-v0.2.0-preview.md]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-v0.2.0-preview
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build and test
+        shell: pwsh
+        run: ./Test.ps1
+      - name: Package Windows x64 application
+        shell: pwsh
+        run: |
+          ./Publish.ps1
+          $asset = 'artifacts/TokNotch-Windows-v0.2.0-preview-win-x64.zip'
+          Move-Item -LiteralPath 'artifacts/TokNotch-Windows-win-x64.zip' -Destination $asset
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $asset -Leaf)" | Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Encoding utf8
+      - name: Create draft, upload assets, publish prerelease
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'v0.2.0-preview'
+          $existing = gh release list --limit 100 --json tagName,isDraft | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect existing releases.' }
+          $release = $existing | Where-Object tagName -EQ $tag
+          if ($release -and !$release.isDraft) { throw 'This prerelease is already published; no assets were replaced.' }
+          if (!$release) {
+            gh release create $tag --target '${{ github.sha }}' --draft --prerelease --title 'TokNotch Windows v0.2.0 Preview' --notes-file .github/release-v0.2.0-preview.md
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release.' }
+          }
+          gh release upload $tag artifacts/TokNotch-Windows-v0.2.0-preview-win-x64.zip artifacts/SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload release assets; draft was retained.' }
+          gh release edit $tag --draft=false --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish prerelease; draft was retained.' }
+          gh release view $tag --json url,isDraft,isPrerelease,assets
+          if ($LASTEXITCODE -ne 0) { throw 'Could not verify release.' }
