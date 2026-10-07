@@ -16,6 +16,9 @@ try {
         if (!$version) { throw "Missing runtime license package: $package" }
         foreach ($name in @('LICENSE.txt','THIRD-PARTY-NOTICES.TXT')) {
             $notice = Get-ChildItem -LiteralPath $version.FullName -Recurse -File | Where-Object Name -IEQ $name | Select-Object -First 1
+            if (!$notice -and $package -eq 'microsoft.windowsdesktop.app.runtime.win-x64') {
+                $notice = Get-Item -LiteralPath (Join-Path $PSScriptRoot "LICENSES\dotnet-WPF-$name") -ErrorAction SilentlyContinue
+            }
             if (!$notice) { throw "Missing $package/$name" }
             Copy-Item -LiteralPath $notice.FullName -Destination (Join-Path $destination "Licenses\$package-$name")
         }
