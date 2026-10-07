@@ -22,6 +22,12 @@ public partial class IslandWindow : Window
  private MonitorWorkArea? _area;
  private readonly DispatcherTimer _follow=new(){Interval=TimeSpan.FromMilliseconds(400)};
  private bool _placing,_mouseDown,_dragging;
+ private bool _appearancePreview;
+ private WindowPreferences? _previewWindow;
+ private MonitorWorkArea? _previewArea;
+ private ExpansionMode _previewMode;
+ private bool _previewExpanded;
+ internal bool IsAppearancePreview=>_appearancePreview;
  private NativeMethods.Point _pointerStart;
  private NativeMethods.Rect _dragStart;
  public event Action<WindowPreferences>? PositionChanged;
@@ -52,7 +58,7 @@ public partial class IslandWindow : Window
   _follow.Tick+=(_,_)=>{if(!_mouseDown&&!Policy.TargetExpanded){var area=_monitors.Resolve(_window);if(area.Device!=_area?.Device){_area=area;ApplyMorph(Morph.ShapeProgress);}}};
   SourceInitialized += (_, _) => { var source = (HwndSource)PresentationSource.FromVisual(this); Native = new(source.Handle); Native.Configure(); source.AddHook(Hook); ApplyMorph(0); };
   Loaded += (_, _) => { if(enableGlass) Glass = new(Native!.Handle, Surface,model.Preferences.GlassEnabled);ApplyPreferences(model.Preferences); };
-  Closed += (_, _) => { _follow.Stop();Glass?.Dispose(); Morph.Dispose(); Policy.Dispose();PositionChanged=null; };
+  Closed += (_, _) => { _appearancePreview=false;_previewWindow=null;_previewArea=null;_follow.Stop();Glass?.Dispose(); Morph.Dispose(); Policy.Dispose();PositionChanged=null; };
  }
  private void OpenSettings(object sender,RoutedEventArgs args){args.Handled=true;SettingsRequested?.Invoke();}
  private async void RefreshRing(object sender,RoutedEventArgs args)
@@ -80,12 +86,38 @@ public partial class IslandWindow : Window
  {
   var changed=_window.Animation!=preferences.Window.Animation;_window=preferences.Window;_area=_monitors.Resolve(_window);
   Surface.ConfigureMaterial(_window.Glass,preferences.GlassEnabled);Surface.SetInteraction(new(),false,false,false);
-  Policy.SetCollapseDelay(TimeSpan.FromMilliseconds(_window.CollapseDelayMilliseconds));Policy.SetMode(preferences.Expansion);
+  Policy.SetCollapseDelay(TimeSpan.FromMilliseconds(_window.CollapseDelayMilliseconds));Policy.SetMode(_appearancePreview?ExpansionMode.AlwaysExpanded:preferences.Expansion);
   if(ReduceMotion)Morph.SetImmediate(Policy.TargetExpanded);
   else if(changed&&Morph.IsRunning)Morph.Animate(Policy.TargetExpanded,false,_window.Animation==AnimationMode.Reduced);
   else ApplyMorph(Morph.ShapeProgress);
-  if(_window.Display==DisplayTarget.FollowCursor)_follow.Start();else _follow.Stop();
+  if(!_appearancePreview&&_window.Display==DisplayTarget.FollowCursor)_follow.Start();else _follow.Stop();
   ApplyTheme();Glass?.Enable(preferences.GlassEnabled);UpdateGlassCadence();
+ }
+ internal void BeginAppearancePreview()
+ {
+  if(_appearancePreview)return;
+  _previewWindow=_window;_previewArea=_area;_previewMode=Policy.Mode;_previewExpanded=Policy.TargetExpanded;
+  _appearancePreview=true;_follow.Stop();Policy.SetMode(ExpansionMode.AlwaysExpanded);
+ }
+ internal void PreviewAppearance(DisplayPreferences preferences)
+ {
+  if(!_appearancePreview)return;
+  // Only appearance changes here; no monitor resolution, placement, or model configuration.
+  var themeChanged=_window.Theme!=preferences.Window.Theme;
+  _window=_window with {Theme=preferences.Window.Theme,Material=preferences.Window.Glass,ExpandedGlassRate=preferences.Window.ExpandedRate,CollapsedGlassRate=preferences.Window.CollapsedRate};
+  Surface.ConfigureMaterial(_window.Glass,preferences.GlassEnabled);if(themeChanged)ApplyTheme();Glass?.Enable(preferences.GlassEnabled);UpdateGlassCadence();
+ }
+ internal void EndAppearancePreview(DisplayPreferences confirmed)
+ {
+  if(!_appearancePreview)return;
+  var before=_previewWindow!;var after=confirmed.Window;
+  var samePosition=before.Edge==after.Edge&&before.Display==after.Display&&before.MonitorDevice==after.MonitorDevice&&before.Offset==after.Offset&&before.EdgeMargin==after.EdgeMargin;
+  ApplyPreferences(confirmed);if(samePosition)_area=_previewArea;
+  _appearancePreview=false;Policy.SetMode(confirmed.Expansion);ApplyMorph(Morph.ShapeProgress);
+  if(_window.Display==DisplayTarget.FollowCursor)_follow.Start();
+  if(confirmed.Expansion==_previewMode&&_previewMode==ExpansionMode.Click&&_previewExpanded)Policy.ShowExpanded();
+  if(confirmed.Expansion==ExpansionMode.Hover){if(IsMouseOver)Policy.PointerEnter();else Policy.PointerLeave();}
+  _previewWindow=null;_previewArea=null;
  }
  private void ApplyTheme(){ThemeManager.Apply(_window.Theme);Surface.ApplyTheme(ThemeManager.IsLight);((IslandViewModel)DataContext).RefreshTheme();UsageRing.InvalidateVisual();}
  private void MaterialPointer(Point point,bool hover,bool pressed)
@@ -95,6 +127,7 @@ public partial class IslandWindow : Window
  private void PointerDown(object sender,MouseButtonEventArgs args)
  {
   if(WithinButton(args.OriginalSource as DependencyObject))return;
+  if(_appearancePreview){args.Handled=true;return;}
   if(!_window.DragEnabled){Policy.Click();return;}
   // Only the compact pill and expanded heading act as drag handles.
   var handle=WithinElement(args.OriginalSource as DependencyObject,Compact)||WithinElement(args.OriginalSource as DependencyObject,HeaderRow);
@@ -142,7 +175,7 @@ public partial class IslandWindow : Window
   var position=DockLayout.Place(area.Left,area.Top,area.Right,area.Bottom,Math.Ceiling(IslandGeometry.HostWidth*dpi.DpiScaleX),Math.Ceiling(IslandGeometry.HostHeight*dpi.DpiScaleY),_window,dpi.DpiScaleX);
   // A fixed transparent host removes the asynchronous HWND resize/layout race.
   // Only the glass silhouette changes; every content element has a fixed desktop anchor.
-  if(!_dragging&&!_placing)
+  if(!_appearancePreview&&!_dragging&&!_placing)
   {
    _placing=true;
    try{Left=Math.Round(position.X)/dpi.DpiScaleX;Top=Math.Round(position.Y)/dpi.DpiScaleY;Width=IslandGeometry.HostWidth;Height=IslandGeometry.HostHeight;

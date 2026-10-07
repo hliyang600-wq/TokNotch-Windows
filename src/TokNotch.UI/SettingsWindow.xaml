@@ -42,7 +42,7 @@
     <TextBlock x:Name="PreviewText" Foreground="{DynamicResource PositiveText}" Margin="0,10,0,0" TextWrapping="Wrap"/>
    </StackPanel>
    <StackPanel x:Name="AppearancePage" Visibility="Collapsed">
-    <TextBlock Text="外观" FontSize="20" FontWeight="SemiBold"/><TextBlock Text="选择适合桌面的明暗主题与窗口材质。" Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap" Margin="0,8,0,24"/>
+    <TextBlock Text="外观" FontSize="20" FontWeight="SemiBold"/><TextBlock Text="浮岛已原地展开，调整即刻预览。点击确认保存；直接关闭将恢复已确认的外观。" Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap" Margin="0,8,0,24"/>
     <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="主题" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"/><ComboBox x:Name="ThemeBox" Grid.Column="1" AutomationProperties.Name="主题" SelectedIndex="0"><ComboBoxItem Content="深色"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="跟随 Windows"/></ComboBox></Grid>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="材质" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"/><ComboBox x:Name="MaterialBox" Grid.Column="1" AutomationProperties.Name="材质" SelectedIndex="0"><ComboBoxItem Content="液态玻璃（录屏隐藏）"/><ComboBoxItem Content="磨砂（可录屏）"/></ComboBox></Grid>
     <StackPanel Margin="0,24,0,0">
@@ -90,6 +90,6 @@
     <TextBlock Text="MiMo 登录会话由 Windows 加密保存。DSH 余额关联：DeepSeek API（不再跟随小米来源），DSH 行与 DeepSeek 行共用同一次余额查询与缓存；小米 MiMo 行只显示 MiMo 自己的控制台余额。Kimi 与 DeepSeek 的 API key 在首次成功连接后由 Windows DPAPI（当前用户）加密保存在本机 config/api-keys.bin，下次启动自动恢复，可用上方“清除已保存的 key”删除；key 不写入日志。任何能以本机该 Windows 用户身份运行的程序都可以解密该文件，请自行权衡。" Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap" Margin="0,26,0,0"/>
    </StackPanel>
   </Grid></c:SmoothScrollViewer>
-  <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="SaveStatus" Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" Text="保存后立即应用，重启仍保留。"/><Button x:Name="SavePreferencesButton" Grid.Column="1" Content="保存并应用" Click="SavePreferences" Style="{StaticResource ActionButton}" Background="{DynamicResource ActionBackground}" BorderBrush="#557E6C"/></Grid>
+  <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="SaveStatus" Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" Text="点击确认保存，关闭放弃未确认的修改。"/><Button x:Name="SavePreferencesButton" Grid.Column="1" Content="确认" Click="SavePreferences" Style="{StaticResource ActionButton}" Background="{DynamicResource ActionBackground}" BorderBrush="#557E6C"/></Grid>
  </Grid></Border>
 </Window>

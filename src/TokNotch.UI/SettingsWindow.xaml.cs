@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Input;
+using System.Windows.Interop;
+using TokNotch.Infrastructure.Windows;
 
 using TokNotch.Core.Models;
 using TokNotch.Core.Interaction;
@@ -12,6 +14,9 @@ public sealed record SettingsCommands(Func<Task<string>> Refresh,Action ShowIsla
 public partial class SettingsWindow : Window
 {
  private readonly Action<DisplayPreferences> save;
+ private DisplayPreferences confirmed;
+ private readonly IslandWindow? previewIsland;
+ private bool previewUpdating,avoidingPanel;
  private readonly Func<string,Task<string>> connectKimi,connectMimo;
  private readonly Func<string,Task<string>>? connectDeepSeek;
  private readonly Func<Task<string>>? forgetDeepSeek,forgetKimi;
@@ -43,8 +48,9 @@ public partial class SettingsWindow : Window
  /// <summary>0 = hover, 1 = click, 2 = always expanded; matches the combo item order.</summary>
  internal ExpansionMode SelectedExpansion => WindowModeBox.SelectedIndex switch{1=>ExpansionMode.Click,2=>ExpansionMode.AlwaysExpanded,_=>ExpansionMode.Hover};
  internal bool SelectedGlass => MaterialBox.SelectedIndex!=1;
- public SettingsWindow(DisplayPreferences preferences,Action<DisplayPreferences> savePreferences,Func<string,Task<string>> kimi,Func<string,Task<string>> mimo,Func<Task<string>>? autoConnectMimo=null,Func<Task<string>>? disconnect=null,Func<string,Task<string>>? deepseek=null,Func<Task<string>>? forgetStoredDeepSeek=null,Func<Task<string>>? forgetStoredKimi=null,SettingsCommands? commands=null)
+ public SettingsWindow(DisplayPreferences preferences,Action<DisplayPreferences> savePreferences,Func<string,Task<string>> kimi,Func<string,Task<string>> mimo,Func<Task<string>>? autoConnectMimo=null,Func<Task<string>>? disconnect=null,Func<string,Task<string>>? deepseek=null,Func<Task<string>>? forgetStoredDeepSeek=null,Func<Task<string>>? forgetStoredKimi=null,SettingsCommands? commands=null,IslandWindow? previewIsland=null)
  {
+  confirmed=preferences;this.previewIsland=previewIsland;
   InitializeComponent();this.commands=commands;RefreshNowButton.IsEnabled=commands!=null;ShowIslandButton.IsEnabled=commands!=null;ExitAppButton.IsEnabled=commands!=null;connectDeepSeek=deepseek;ConnectDeepSeekButton.IsEnabled=deepseek!=null;forgetDeepSeek=forgetStoredDeepSeek;ForgetDeepSeekButton.IsEnabled=forgetDeepSeek!=null;forgetKimi=forgetStoredKimi;ForgetKimiButton.IsEnabled=forgetKimi!=null;autoMimo=autoConnectMimo;disconnectMimo=disconnect;AutoMimoButton.IsEnabled=autoMimo!=null;DisconnectMimoButton.IsEnabled=disconnectMimo!=null;save=savePreferences;connectKimi=kimi;connectMimo=mimo;providers=preferences.Providers.ToArray();metrics=preferences.Metrics.ToArray();rings=preferences.Rings.ToDictionary(pair=>pair.Key,pair=>pair.Value);
   WindowModeBox.SelectedIndex=preferences.Expansion switch{ExpansionMode.Click=>1,ExpansionMode.AlwaysExpanded=>2,_=>0};MaterialBox.SelectedIndex=preferences.GlassEnabled?0:1;
   SetGlassEditor(preferences.Window.Glass);
@@ -54,20 +60,76 @@ public partial class SettingsWindow : Window
   BaselineCny.Text=preferences.AmountBaselineCny.ToString("0.##",CultureInfo.InvariantCulture);BaselineUsd.Text=preferences.AmountBaselineUsd?.ToString("0.##",CultureInfo.InvariantCulture)??"";RefreshSecondsBox.Text=preferences.RefreshSeconds.ToString(CultureInfo.InvariantCulture);BalanceSecondsBox.Text=preferences.BalanceRefreshSeconds.ToString(CultureInfo.InvariantCulture);
   TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);TextOptions.SetTextRenderingMode(this,TextRenderingMode.Grayscale);
   RenderProviders();RenderMetrics();ringUpdating=true;RingProviderBox.ItemsSource=ProviderCatalog.Available;RingProviderBox.ItemTemplate=(DataTemplate)FindResource("ProviderNameTemplate");RingProviderBox.SelectedValuePath="Id";RingProviderBox.SelectedValue=ringEditing;ringUpdating=false;RenderRingEditor();UpdatePreview();ShowDisplay(this,new RoutedEventArgs());
+  foreach(var slider in new[]{GlassDisplacement,GlassBlur,GlassSaturation,GlassAberration,GlassElasticity,GlassCornerRadius,GlassTintOpacity})slider.ValueChanged+=(_,_)=>PreviewAppearance();
+  foreach(var box in new[]{ThemeBox,MaterialBox,GlassMode,ExpandedRateBox,CollapsedRateBox})box.SelectionChanged+=(_,_)=>PreviewAppearance();
+  ExpandedCustomFps.TextChanged+=(_,_)=>PreviewAppearance();CollapsedCustomFps.TextChanged+=(_,_)=>PreviewAppearance();
+  GlassOverLight.Checked+=(_,_)=>PreviewAppearance();GlassOverLight.Unchecked+=(_,_)=>PreviewAppearance();
+  Loaded+=(_,_)=>{if(AppearancePage.Visibility==Visibility.Visible){PreviewAppearance();AvoidPanel();}};
+  LocationChanged+=(_,_)=>AvoidPanel();SizeChanged+=(_,_)=>AvoidPanel();
+  Closed+=(_,_)=>EndAppearancePreview();
+ }
+ private GlassMaterial ReadGlassMaterial()
+ {
+  var material=new GlassMaterial((RefractionMode)GlassMode.SelectedIndex,GlassDisplacement.Value,GlassBlur.Value,GlassSaturation.Value,GlassAberration.Value,GlassElasticity.Value,GlassCornerRadius.Value,GlassOverLight.IsChecked==true,GlassTintOpacity.Value);material.Validate();return material;
+ }
+ private void PreviewAppearance()
+ {
+  if(previewUpdating||previewIsland==null||AppearancePage.Visibility!=Visibility.Visible)return;
+  if(!previewIsland.IsAppearancePreview){previewIsland.BeginAppearancePreview();AvoidPanel();}
+  try
+  {
+   var window=confirmed.Window with {Theme=(AppearanceTheme)ThemeBox.SelectedIndex,Material=ReadGlassMaterial(),ExpandedGlassRate=ReadGlassRate(ExpandedRateBox,ExpandedCustomFps),CollapsedGlassRate=ReadGlassRate(CollapsedRateBox,CollapsedCustomFps)};
+   var draft=new DisplayPreferences(confirmed.Providers,confirmed.Metrics,confirmed.AmountBaselineCny,confirmed.AmountBaselineUsd,confirmed.RefreshSeconds,confirmed.BalanceRefreshSeconds,confirmed.Expansion,SelectedGlass,confirmed.Rings,window);
+   previewIsland.PreviewAppearance(draft);
+   SaveStatus.Text="正在实时预览 · 点击确认保存，关闭撤销未确认的修改。";
+  }
+  catch(ArgumentException error){SaveStatus.Text=error.Message;}
+ }
+ private void EndAppearancePreview()=>previewIsland?.EndAppearancePreview(confirmed);
+ private void AvoidPanel()
+ {
+  if(avoidingPanel||previewIsland?.IsAppearancePreview!=true)return;
+  var handle=new WindowInteropHelper(this).Handle;
+  if(handle==IntPtr.Zero||previewIsland.Native==null||!NativeMethods.GetWindowRect(handle,out var own)||!NativeMethods.GetWindowRect(previewIsland.Native.Handle,out var panel))return;
+  var current=new Rect(own.Left,own.Top,own.Right-own.Left,own.Bottom-own.Top);
+  var bounds=new Rect(panel.Left,panel.Top,panel.Right-panel.Left,panel.Bottom-panel.Top);
+  var areas=new MonitorService().Displays.Select(area=>new Rect(area.Left,area.Top,area.Right-area.Left,area.Bottom-area.Top));
+  var target=PlaceBesidePanel(current,bounds,areas,16*VisualTreeHelper.GetDpi(this).DpiScaleX);
+  if(target==current)return;
+  avoidingPanel=true;
+  try{NativeMethods.SetWindowPos(handle,IntPtr.Zero,(int)Math.Round(target.X),(int)Math.Round(target.Y),(int)Math.Round(target.Width),(int)Math.Round(target.Height),NativeMethods.SwpNoActivate|NativeMethods.SwpNoOwnerZOrder|4);}
+  finally{avoidingPanel=false;}
+ }
+ internal static Rect PlaceBesidePanel(Rect current,Rect panel,IEnumerable<Rect> workAreas,double gap)
+ {
+  panel.Inflate(gap,gap);var choices=new List<Rect>();
+  bool Overlaps(Rect rect)=>rect.Left<panel.Right&&rect.Right>panel.Left&&rect.Top<panel.Bottom&&rect.Bottom>panel.Top;
+  foreach(var area in workAreas)
+  {
+   if(area.Width<current.Width||area.Height<current.Height)continue;
+   if(area.Contains(current)&&!Overlaps(current))return current;
+   foreach(var point in new[]{current.TopLeft,new Point(panel.Left-current.Width,current.Y),new Point(panel.Right,current.Y),new Point(current.X,panel.Top-current.Height),new Point(current.X,panel.Bottom)})
+   {
+    var candidate=new Rect(Math.Clamp(point.X,area.Left,area.Right-current.Width),Math.Clamp(point.Y,area.Top,area.Bottom-current.Height),current.Width,current.Height);
+    if(!Overlaps(candidate))choices.Add(candidate);
+   }
+  }
+  // ponytail: keep the user's window size; no layout can fit two windows on an undersized sole monitor.
+  return choices.Count==0?current:choices.MinBy(rect=>(rect.TopLeft-current.TopLeft).LengthSquared);
  }
  private WindowPreferences ReadWindowPreferences()
  {
   if(!double.TryParse(EdgeOffsetBox.Text.Trim(),NumberStyles.Float,CultureInfo.InvariantCulture,out var offset)||!double.IsFinite(offset)||offset<0||offset>100)throw new ArgumentException("沿边位置需在 0–100% 之间。");
   if(!int.TryParse(EdgeMarginBox.Text.Trim(),out var margin)||margin<0||margin>100)throw new ArgumentException("边缘距离需在 0–100 之间。");
   if(!int.TryParse(CollapseDelayBox.Text.Trim(),out var delay)||delay<200||delay>1000)throw new ArgumentException("收起延迟需在 200–1000 毫秒之间。");
-  var material=new GlassMaterial((RefractionMode)GlassMode.SelectedIndex,GlassDisplacement.Value,GlassBlur.Value,GlassSaturation.Value,GlassAberration.Value,GlassElasticity.Value,GlassCornerRadius.Value,GlassOverLight.IsChecked==true,GlassTintOpacity.Value);material.Validate();
+  var material=ReadGlassMaterial();
   return new((AppearanceTheme)ThemeBox.SelectedIndex,(DockEdge)DockEdgeBox.SelectedIndex,(DisplayTarget)DisplayTargetBox.SelectedIndex,MonitorBox.SelectedValue as string,offset/100,margin,DragEnabledBox.IsChecked==true,(AnimationMode)AnimationModeBox.SelectedIndex,delay,ReadGlassRate(ExpandedRateBox,ExpandedCustomFps),ReadGlassRate(CollapsedRateBox,CollapsedCustomFps),material);
  }
  private void SetGlassEditor(GlassMaterial material)
  {
   GlassMode.SelectedIndex=(int)material.Mode;GlassDisplacement.Value=material.Displacement;GlassBlur.Value=material.Blur;GlassSaturation.Value=material.Saturation;GlassAberration.Value=material.Aberration;GlassElasticity.Value=material.Elasticity;GlassCornerRadius.Value=material.CornerRadius;GlassOverLight.IsChecked=material.OverLight;GlassTintOpacity.Value=material.TintOpacity;
  }
- private void ResetGlassMaterial(object sender,RoutedEventArgs args)=>SetGlassEditor(new(Displacement:65,Blur:.12,Saturation:145,Aberration:1.5,Elasticity:.2));
+ private void ResetGlassMaterial(object sender,RoutedEventArgs args){previewUpdating=true;try{SetGlassEditor(new(Displacement:65,Blur:.12,Saturation:145,Aberration:1.5,Elasticity:.2));}finally{previewUpdating=false;}PreviewAppearance();}
  private static GlassFrameRate ReadGlassRate(ComboBox box,TextBox custom)
  {
   var mode=(GlassFrameRateMode)box.SelectedIndex;var fps=30;
@@ -89,6 +151,7 @@ public partial class SettingsWindow : Window
   DisplayTargetBox.SelectedIndex=(int)preferences.Display;DockEdgeBox.SelectedIndex=(int)preferences.Edge;EdgeOffsetBox.Text=(preferences.Offset*100).ToString("0.##",CultureInfo.InvariantCulture);EdgeMarginBox.Text=preferences.EdgeMargin.ToString(CultureInfo.InvariantCulture);DragEnabledBox.IsChecked=preferences.DragEnabled;
   MonitorBox.IsEnabled=preferences.Display==DisplayTarget.Specific;
  }
+ internal void SynchronizePosition(WindowPreferences position){confirmed=confirmed.WithWindow(position);UpdatePositionEditor(position);}
  private void ChangeDisplayTarget(object sender,SelectionChangedEventArgs args){if(MonitorBox!=null)MonitorBox.IsEnabled=DisplayTargetBox.SelectedIndex==2;}
  internal void ReportPositionSaveError(){ShowPage(PositionPage,PositionTab);SaveStatus.Text="位置已调整，但未能保存到磁盘。请检查目录权限后点击保存。";}
  private void ResetPosition(object sender,RoutedEventArgs args){UpdatePositionEditor(new());SaveStatus.Text="已恢复主屏顶部居中，保存后应用。";}
@@ -135,15 +198,17 @@ public partial class SettingsWindow : Window
  private void UpdatePreview()=>PreviewText.Text="窗口顺序："+string.Join("  →  ",providers.Select(ProviderCatalog.Name))+"   ·   金额圆环满圈：¥"+(decimal.TryParse(BaselineCny.Text.Trim(),NumberStyles.Number,CultureInfo.InvariantCulture,out var cny)?cny.ToString("0.##",CultureInfo.InvariantCulture):"—")+(string.IsNullOrWhiteSpace(BaselineUsd.Text)?"   ·   美元满圈未设置":"   ·   美元满圈 $"+BaselineUsd.Text.Trim())+"   ·   刷新 "+RefreshSecondsBox.Text.Trim()+"s / 余额 "+BalanceSecondsBox.Text.Trim()+"s";
  private void SavePreferences(object sender,RoutedEventArgs args)
  {
-  try{var draft=Draft;save(draft);SaveStatus.Text="已保存，窗口立即更新。";}
+  try{var draft=Draft;save(draft);confirmed=draft;EndAppearancePreview();SaveStatus.Text="已保存，窗口立即更新。";}
   catch(ArgumentException error){SaveStatus.Text=error.Message;}
   catch(Exception error)when(error is IOException or UnauthorizedAccessException){SaveStatus.Text="保存失败，请检查项目目录是否可写。";}
  }
  private void ShowPage(FrameworkElement page,Button tab)
  {
+  if(page!=AppearancePage){var wasPreview=previewIsland?.IsAppearancePreview==true;EndAppearancePreview();if(wasPreview)SaveStatus.Text="预览已结束，草稿仍保留。点击确认保存，关闭放弃修改。";}
   foreach(var item in new[]{DisplayPage,ConnectionPage,AppearancePage,PositionPage,AnimationPage})item.Visibility=item==page?Visibility.Visible:Visibility.Collapsed;
   foreach(var item in new[]{DisplayTab,ConnectionTab,AppearanceTab,PositionTab,AnimationTab})item.SetResourceReference(BackgroundProperty,item==tab?"SelectedBackground":"ControlBackground");
   SettingsScroll.ScrollToTop();
+  if(page==AppearancePage)PreviewAppearance();
  }
  private void ShowDisplay(object sender,RoutedEventArgs args)=>ShowPage(DisplayPage,DisplayTab);
  internal void ShowConnectionPage()=>ShowConnections(this,new RoutedEventArgs());
