@@ -11,7 +11,7 @@ internal sealed class DesktopBackdrop : IDisposable
  private IntPtr info=Marshal.AllocHGlobal(256);
  private RectI outputBounds;
  private byte[] pixels=Array.Empty<byte>();
- private byte[] previous=Array.Empty<byte>();
+ private byte[] rowPixels=Array.Empty<byte>();
  private string outputDevice="";
  private RectI lastBounds;
  internal int SamplingPadding { get; set; }
@@ -25,6 +25,8 @@ internal sealed class DesktopBackdrop : IDisposable
  internal int TextureAllocations { get; private set; }
  internal int SkippedFrames { get; private set; }
  internal int MonitorQueries { get; private set; }
+ internal bool ValidateFrameCopies { get; set; }
+ internal int ValidatedCopies { get; private set; }
  public DesktopBackdrop(IntPtr hwnd,int samplingPadding=0)
  {
   SamplingPadding=samplingPadding;
@@ -82,25 +84,35 @@ internal sealed class DesktopBackdrop : IDisposable
    bool moved=rect.Left!=lastBounds.Left||rect.Top!=lastBounds.Top||rect.Right!=lastBounds.Right||rect.Bottom!=lastBounds.Bottom;
    // Dirty rectangles can omit changes behind WDA_EXCLUDEFROMCAPTURE windows.
    // Only skip pointer-only updates; compare the actual crop before publishing it.
-   if(!moved&&previous.Length!=0&&Marshal.ReadInt64(info)==0) { SkippedFrames++; return null; }
+   if(!moved&&pixels.Length!=0&&Marshal.ReadInt64(info)==0) { SkippedFrames++; return null; }
    texture=Query(resource,new Guid("6f15aaf2-d208-4e89-9ab4-489535d34f9c"));
    if(width!=captureWidth||height!=captureHeight) {
     Release(ref staging); width=captureWidth; height=captureHeight;
     var desc=new TextureDesc { Width=(uint)width, Height=(uint)height, MipLevels=1,ArraySize=1,Format=87,SampleCount=1,Usage=3,CpuAccessFlags=0x20000 };
-    Check(Call<CreateTexture>(device,5)(device,ref desc,IntPtr.Zero,out staging)); pixels=new byte[checked(width*height*4)]; previous=new byte[pixels.Length]; TextureAllocations++;
+    Check(Call<CreateTexture>(device,5)(device,ref desc,IntPtr.Zero,out staging)); pixels=new byte[checked(width*height*4)];rowPixels=new byte[width*4]; TextureAllocations++;
    }
    var box=new Box { Left=(uint)(rect.Left-outputBounds.Left),Top=(uint)(rect.Top-outputBounds.Top),Right=(uint)(rect.Right-outputBounds.Left),Bottom=(uint)(rect.Bottom-outputBounds.Top),Back=1 };
    copyRegion(context,staging,0,0,0,0,texture,0,ref box);
    Check(map(context,staging,0,1,0,out var data),"Map"); mapped=true; Readbacks++;
-   for(int row=0;row<height;row++) Marshal.Copy(IntPtr.Add(data.Data,checked(row*(int)data.RowPitch)),pixels,row*width*4,width*4);
-   bool changed=moved||!pixels.AsSpan().SequenceEqual(previous);
+   bool changed=moved;
+   for(int row=0;row<height;row++) {
+    Marshal.Copy(IntPtr.Add(data.Data,checked(row*(int)data.RowPitch)),rowPixels,0,rowPixels.Length);
+    var previousRow=pixels.AsSpan(row*rowPixels.Length,rowPixels.Length);
+    if(!changed&&!rowPixels.AsSpan().SequenceEqual(previousRow))changed=true;
+    rowPixels.CopyTo(previousRow);
+   }
+   if(ValidateFrameCopies){
+    var reference=new byte[pixels.Length];
+    for(int row=0;row<height;row++)Marshal.Copy(IntPtr.Add(data.Data,checked(row*(int)data.RowPitch)),reference,row*width*4,width*4);
+    if(!pixels.AsSpan().SequenceEqual(reference))throw new InvalidOperationException("Single-buffer capture changed GPU pixels.");
+    ValidatedCopies++;
+   }
    lastBounds=rect;
    if(!changed) { SkippedFrames++; return null; }
-   pixels.AsSpan().CopyTo(previous);
    return pixels;
   } finally { if(mapped) unmap(context,staging,0); Release(ref texture); Release(ref resource); if(acquired) Check(releaseFrame(duplication)); }
  }
- public void Dispose() { Release(ref staging); Release(ref duplication); Release(ref context); Release(ref device); if(info!=IntPtr.Zero) { Marshal.FreeHGlobal(info); info=IntPtr.Zero; } pixels=previous=Array.Empty<byte>(); }
+ public void Dispose() { Release(ref staging); Release(ref duplication); Release(ref context); Release(ref device); if(info!=IntPtr.Zero) { Marshal.FreeHGlobal(info); info=IntPtr.Zero; } pixels=rowPixels=Array.Empty<byte>(); }
  private static void Check(int hr,string operation="COM") { if(hr<0) { var error=Marshal.GetExceptionForHR(hr)!; error.Data["NativeOperation"]=operation; throw error; } }
  private static IntPtr Query(IntPtr obj,Guid iid) { Check(Marshal.QueryInterface(obj,in iid,out var result)); return result; }
  private static void Release(ref IntPtr obj) { if(obj!=IntPtr.Zero) { Marshal.Release(obj); obj=IntPtr.Zero; } }

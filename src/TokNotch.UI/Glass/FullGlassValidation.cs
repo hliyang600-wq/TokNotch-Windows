@@ -21,7 +21,7 @@ internal static class FullGlassValidation
    var frameWidth=island.Glass.LastWidth;var frameHeight=island.Glass.LastHeight;
    var originalFrame=island.Glass.LastFrame.ToArray();var originalBounds=surface.CaptureBounds;
    island.Glass.Dispose(); // Freeze our authored backdrop, then capture the actual GPU-rendered island.
-   using var capture=new DesktopBackdrop(island.Native!.Handle);
+   using var capture=new DesktopBackdrop(island.Native!.Handle){ValidateFrameCopies=true};
    byte[]? previousShot=null;
    async Task<byte[]> Shot(string name,GlassMaterial material){surface.ConfigureMaterial(material,true);await Task.Delay(300);var bytes=capture.Capture(island.Native.Handle,out var w,out var h)??previousShot??throw new InvalidOperationException("GPU screenshot unavailable");var bitmap=BitmapSource.Create(w,h,96,96,PixelFormats.Bgr32,null,bytes,w*4);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var file=File.Create(Path.Combine(output,name+".png"));encoder.Save(file);previousShot=bytes.ToArray();return previousShot;}
    void Different(byte[] a,byte[] b,string label){double delta=0;for(int i=0;i<a.Length;i++)if(i%4!=3)delta+=Math.Abs(a[i]-b[i]);if(delta/a.Length<.03)throw new InvalidOperationException("Effect did not change actual GPU pixels: "+label);checks.Add(label);}
@@ -88,6 +88,8 @@ internal static class FullGlassValidation
    }
    if(tick<60||worst>.1)throw new InvalidOperationException("Material flickered during repeated uploads: "+worst+"; uploads="+tick);
    checks.Add("dynamic upload stability: "+tick+" uploads, "+samples+" changed frames, maximum mean pixel drift "+worst.ToString("0.###"));
+   if(capture.ValidatedCopies<5)throw new InvalidOperationException("Insufficient real GPU frame-copy checks.");
+   checks.Add("single-buffer captures match mapped GPU texture byte-for-byte: "+capture.ValidatedCopies+" frames");
    await File.WriteAllLinesAsync(Path.Combine(output,"checks.txt"),checks);
   }finally{background.Close();island.Close();}
  }
