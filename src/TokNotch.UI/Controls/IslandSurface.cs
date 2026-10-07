@@ -69,7 +69,8 @@ public sealed class IslandSurface : Grid
     internal void ConfigureMaterial(GlassMaterial settings,bool enabled)
     {
         material=settings;materialEnabled=enabled;glass?.Configure(settings);
-        Effect=enabled?new DropShadowEffect{Color=Colors.Black,Opacity=settings.OverLight?.75:.25,BlurRadius=settings.OverLight?70:40,ShadowDepth=settings.OverLight?16:12,Direction=270}:null;
+        // CSS shadow blur-radius is twice sigma; WPF radius is three times sigma.
+        Effect=enabled?new DropShadowEffect{Color=Colors.Black,Opacity=settings.OverLight?.75:.25,BlurRadius=settings.OverLight?105:60,ShadowDepth=settings.OverLight?16:12,Direction=270}:null;
         // WPF Gaussian sigma is Radius/3; CSS blur() specifies sigma directly.
         backgroundBlur.Radius=3*((settings.OverLight?12:4)+settings.Blur*32);
         SamplingPadding=(int)Math.Ceiling(backgroundBlur.Radius+settings.Displacement*(settings.OverLight?.25:.5)+2);
@@ -83,7 +84,7 @@ public sealed class IslandSurface : Grid
         for(var i=0;i<VisualTreeHelper.GetChildrenCount(element);i++)ApplyTextShadow(VisualTreeHelper.GetChild(element,i));
     }
     private static readonly DropShadowEffect TextShadow=MakeTextShadow();
-    private static DropShadowEffect MakeTextShadow(){var effect=new DropShadowEffect{Color=Colors.Black,Opacity=.4,BlurRadius=36,ShadowDepth=2,Direction=270};effect.Freeze();return effect;}
+    private static DropShadowEffect MakeTextShadow(){var effect=new DropShadowEffect{Color=Colors.Black,Opacity=.4,BlurRadius=18,ShadowDepth=2,Direction=270};effect.Freeze();return effect;}
     internal void SetInteraction(Point point,bool hovered,bool pressed,bool animate)
     {
         pointer=point;var target=material.Interaction(point.X,point.Y,baseWidth,baseHeight,pressed);

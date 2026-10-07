@@ -37,6 +37,8 @@ internal static class FullGlassValidation
    checks.Add("original percentage highlight input at compact size");surface.SetShape(380,220,28);surface.SetInteraction(new(),false,false,false);
    if(((FrameworkElement)surface.Child!).Effect is not null)throw new InvalidOperationException("Content container must not cast a shadow.");
    checks.Add("text shadow excludes content container and ring graphics");
+   if(((System.Windows.Controls.TextBlock)island.FindName("RingCenterTop")).Effect is not System.Windows.Media.Effects.DropShadowEffect {BlurRadius:18,ShadowDepth:2}||surface.Effect is not System.Windows.Media.Effects.DropShadowEffect {BlurRadius:60})throw new InvalidOperationException("CSS shadow blur radius conversion incorrect.");
+   checks.Add("CSS text/box shadow radii map to native Gaussian sigma");
    surface.SetInteraction(new Point(150,25),true,false,true);await Task.Delay(400);var hover=await Shot("hover",new());Different(baseline,hover,"hover stretch and highlights");
    surface.SetInteraction(new Point(150,25),true,true,true);await Task.Delay(400);Different(hover,await Shot("press",new()),"press response");
    if(((FrameworkElement)island.FindName("Expanded")).TranslatePoint(new(),island)!=anchor)throw new InvalidOperationException("Text anchor moved with material.");checks.Add("text anchor stays fixed during material stretch");
