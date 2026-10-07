@@ -14,6 +14,8 @@ internal sealed class DesktopBackdrop : IDisposable
  private byte[] previous=Array.Empty<byte>();
  private string outputDevice="";
  private RectI lastBounds;
+ internal int SamplingPadding { get; set; }
+ internal System.Windows.Rect SourceBounds { get; private set; }
  private Acquire acquire=null!;
  private ReleaseFrame releaseFrame=null!;
  private CopyRegion copyRegion=null!;
@@ -23,8 +25,9 @@ internal sealed class DesktopBackdrop : IDisposable
  internal int TextureAllocations { get; private set; }
  internal int SkippedFrames { get; private set; }
  internal int MonitorQueries { get; private set; }
- public DesktopBackdrop(IntPtr hwnd)
+ public DesktopBackdrop(IntPtr hwnd,int samplingPadding=0)
  {
+  SamplingPadding=samplingPadding;
   try { Initialize(hwnd); } catch { Dispose(); throw; }
  }
  private void Initialize(IntPtr hwnd)
@@ -56,9 +59,12 @@ internal sealed class DesktopBackdrop : IDisposable
  public byte[]? Capture(IntPtr hwnd,out int captureWidth,out int captureHeight)
  {
   if(!GetWindowRect(hwnd,out var rect)) throw new InvalidOperationException("Cannot obtain island bounds.");
+  var host=rect;var dpi=GetDpiForWindow(hwnd)/96d;var padding=(int)Math.Ceiling(SamplingPadding*dpi);
+  rect.Left=Math.Max(outputBounds.Left,rect.Left-padding);rect.Top=Math.Max(outputBounds.Top,rect.Top-padding);
+  rect.Right=Math.Min(outputBounds.Right,rect.Right+padding);rect.Bottom=Math.Min(outputBounds.Bottom,rect.Bottom+padding);
   captureWidth=rect.Right-rect.Left;captureHeight=rect.Bottom-rect.Top;
   // DXGI already supplies the output bounds. Only resolve a monitor after leaving them.
-  int centerX=(rect.Left+rect.Right)/2,centerY=(rect.Top+rect.Bottom)/2;
+  int centerX=(host.Left+host.Right)/2,centerY=(host.Top+host.Bottom)/2;
   if(centerX<outputBounds.Left||centerX>=outputBounds.Right||centerY<outputBounds.Top||centerY>=outputBounds.Bottom) {
    MonitorQueries++;
    var currentDevice=new TokNotch.Infrastructure.Windows.MonitorService().AtPoint(centerX,centerY).Device;
@@ -66,6 +72,7 @@ internal sealed class DesktopBackdrop : IDisposable
   }
   // During dragging, retain the last frame while the host straddles an output boundary.
   if(captureWidth<1||captureHeight<1||rect.Left<outputBounds.Left||rect.Top<outputBounds.Top||rect.Right>outputBounds.Right||rect.Bottom>outputBounds.Bottom){Thread.Sleep(30);return null;}
+  SourceBounds=new System.Windows.Rect((rect.Left-host.Left)/dpi,(rect.Top-host.Top)/dpi,captureWidth/dpi,captureHeight/dpi);
   IntPtr resource=IntPtr.Zero, texture=IntPtr.Zero; bool acquired=false,mapped=false;
   // Wait on the capture worker, never on the WPF render/UI thread. Static desktops do not busy-poll.
   int hr=acquire(duplication,100,info,out resource);

@@ -11,14 +11,16 @@ namespace TokNotch.UI.Glass;
 // See Licenses/liquid-glass-react-MIT.txt and shuding-liquid-glass-LICENSE.txt.
 public sealed class LiquidGlassEffect : ShaderEffect
 {
- public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(LiquidGlassEffect), 0);
+ public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(LiquidGlassEffect), 0,SamplingMode.Bilinear);
  public static readonly DependencyProperty DimensionsProperty = DependencyProperty.Register("Dimensions", typeof(Point), typeof(LiquidGlassEffect), new UIPropertyMetadata(new Point(380,220), PixelShaderConstantCallback(0)));
  public static readonly DependencyProperty RadiusProperty = DependencyProperty.Register("Radius", typeof(double), typeof(LiquidGlassEffect), new UIPropertyMetadata(28d, PixelShaderConstantCallback(1)));
  public static readonly DependencyProperty TintProperty = DependencyProperty.Register("Tint",typeof(Color),typeof(LiquidGlassEffect),new UIPropertyMetadata(Color.FromRgb(19,18,24),PixelShaderConstantCallback(2)));
  private static readonly DependencyProperty MapProperty=RegisterPixelShaderSamplerProperty("Map",typeof(LiquidGlassEffect),1,SamplingMode.Bilinear);
  private static DependencyProperty Constant(string name,double value,int register)=>DependencyProperty.Register(name,typeof(double),typeof(LiquidGlassEffect),new UIPropertyMetadata(value,PixelShaderConstantCallback(register)));
- private static readonly DependencyProperty DisplacementProperty=Constant("Displacement",70,3),BlurProperty=Constant("Blur",6,4),SaturationProperty=Constant("Saturation",1.4,5),AberrationProperty=Constant("Aberration",2,6),ModeProperty=Constant("Mode",0,7),OverLightProperty=Constant("OverLight",0,8),HoverProperty=Constant("Hover",0,10),PressProperty=Constant("Press",0,11),NormalizationProperty=Constant("Normalization",1,12),TintOpacityProperty=Constant("TintOpacity",.08,13);
+ private static readonly DependencyProperty DisplacementProperty=Constant("Displacement",70,3),SaturationProperty=Constant("Saturation",1.4,5),AberrationProperty=Constant("Aberration",2,6),ModeProperty=Constant("Mode",0,7),OverLightProperty=Constant("OverLight",0,8),HoverProperty=Constant("Hover",0,10),PressProperty=Constant("Press",0,11),NormalizationProperty=Constant("Normalization",1,12),TintOpacityProperty=Constant("TintOpacity",0,13);
  private static readonly DependencyProperty PointerProperty=DependencyProperty.Register("Pointer",typeof(Point),typeof(LiquidGlassEffect),new UIPropertyMetadata(new Point(),PixelShaderConstantCallback(9)));
+ private static readonly DependencyProperty OriginProperty=DependencyProperty.Register("Origin",typeof(Point),typeof(LiquidGlassEffect),new UIPropertyMetadata(new Point(),PixelShaderConstantCallback(14)));
+ private static readonly DependencyProperty SourceDimensionsProperty=DependencyProperty.Register("SourceDimensions",typeof(Point),typeof(LiquidGlassEffect),new UIPropertyMetadata(new Point(404,240),PixelShaderConstantCallback(15)));
  private static readonly Lazy<PixelShader> SharedShader=new(()=>{var shader=new PixelShader();using var stream=new MemoryStream(Compile());shader.SetStreamSource(stream);shader.Freeze();return shader;});
  private static readonly Lazy<Brush[]> Maps=new(()=>new[]{LoadMap("standard.jpg"),LoadMap("polar.jpg"),LoadMap("prominent.png")});
  private static Brush LoadMap(string name){var bitmap=new BitmapImage(new Uri("pack://application:,,,/Assets/GlassMaps/"+name));bitmap.Freeze();var brush=new ImageBrush(bitmap){Stretch=Stretch.Fill};brush.Freeze();return brush;}
@@ -36,18 +38,21 @@ public sealed class LiquidGlassEffect : ShaderEffect
  public Brush Input { get => (Brush)GetValue(InputProperty); set => SetValue(InputProperty,value); }
  public Point Dimensions { get => (Point)GetValue(DimensionsProperty); set {SetValue(DimensionsProperty,value);var factors=ShaderFactors.Value;SetValue(NormalizationProperty,Math.Max(1,Math.Max(factors.X*value.X,factors.Y*value.Y)));} }
  public double Radius { get => (double)GetValue(RadiusProperty); set => SetValue(RadiusProperty,value); }
+ internal Point Origin { get=>(Point)GetValue(OriginProperty);set=>SetValue(OriginProperty,value); }
+ internal Point SourceDimensions { get=>(Point)GetValue(SourceDimensionsProperty);set=>SetValue(SourceDimensionsProperty,value); }
+ internal Point HighlightOffset => (Point)GetValue(PointerProperty);
  public LiquidGlassEffect()
  {
   if (!RenderCapability.IsPixelShaderVersionSupported(3,0)) throw new NotSupportedException("Pixel shader 3.0 unavailable.");
   PixelShader=SharedShader.Value;
-  UpdateShaderValue(InputProperty); UpdateShaderValue(DimensionsProperty); UpdateShaderValue(RadiusProperty);UpdateShaderValue(TintProperty);
-  foreach(var property in new[]{MapProperty,DisplacementProperty,BlurProperty,SaturationProperty,AberrationProperty,ModeProperty,OverLightProperty,PointerProperty,HoverProperty,PressProperty,NormalizationProperty,TintOpacityProperty})UpdateShaderValue(property);
+  UpdateShaderValue(InputProperty); UpdateShaderValue(DimensionsProperty); UpdateShaderValue(RadiusProperty);UpdateShaderValue(TintProperty);UpdateShaderValue(OriginProperty);UpdateShaderValue(SourceDimensionsProperty);
+  foreach(var property in new[]{MapProperty,DisplacementProperty,SaturationProperty,AberrationProperty,ModeProperty,OverLightProperty,PointerProperty,HoverProperty,PressProperty,NormalizationProperty,TintOpacityProperty})UpdateShaderValue(property);
   Configure(new());
  }
  internal void Configure(GlassMaterial material)
  {
   material.Validate();SetValue(MapProperty,Maps.Value[Math.Min(2,(int)material.Mode)]);
-  SetValue(DisplacementProperty,material.Displacement);SetValue(BlurProperty,(material.OverLight?12:4)+material.Blur*32);SetValue(SaturationProperty,material.Saturation/100);SetValue(AberrationProperty,material.Aberration);SetValue(ModeProperty,(double)material.Mode);SetValue(OverLightProperty,material.OverLight?1d:0d);SetValue(TintOpacityProperty,material.TintOpacity);
+  SetValue(DisplacementProperty,material.Displacement);SetValue(SaturationProperty,material.Saturation/100);SetValue(AberrationProperty,material.Aberration);SetValue(ModeProperty,(double)material.Mode);SetValue(OverLightProperty,material.OverLight?1d:0d);SetValue(TintOpacityProperty,material.TintOpacity);
  }
  internal void Interaction(Point offset,double hover,double press){SetValue(PointerProperty,offset);SetValue(HoverProperty,hover);SetValue(PressProperty,press);}
  private const string Source = """
@@ -57,7 +62,6 @@ public sealed class LiquidGlassEffect : ShaderEffect
  float radius : register(c1);
  float4 tint : register(c2);
  float displacementScale : register(c3);
- float blurRadius : register(c4);
  float saturationAmount : register(c5);
  float aberration : register(c6);
  float mode : register(c7);
@@ -67,18 +71,15 @@ public sealed class LiquidGlassEffect : ShaderEffect
  float pressed : register(c11);
  float normalization : register(c12);
  float tintOpacity : register(c13);
+ float2 origin : register(c14);
+ float2 sourceDimensions : register(c15);
  float3 blurred(float2 uv) {
-   float softness=max(.1,.5-aberration*.1);
-   float2 stepUV=sqrt(blurRadius*blurRadius+softness*softness)*.5/dimensions;
-   float3 c=tex2D(background,saturate(uv)).rgb*.25;
-   c+=(tex2D(background,saturate(uv+float2(stepUV.x,0))).rgb+tex2D(background,saturate(uv-float2(stepUV.x,0))).rgb+tex2D(background,saturate(uv+float2(0,stepUV.y))).rgb+tex2D(background,saturate(uv-float2(0,stepUV.y))).rgb)*.125;
-   c+=(tex2D(background,saturate(uv+stepUV)).rgb+tex2D(background,saturate(uv-stepUV)).rgb+tex2D(background,saturate(uv+float2(stepUV.x,-stepUV.y))).rgb+tex2D(background,saturate(uv+float2(-stepUV.x,stepUV.y))).rgb)*.0625;
+   float4 sample=tex2D(background,saturate((origin+uv*dimensions)/sourceDimensions));
+   // Native Gaussian edges are premultiplied; preserve a uniform backdrop's brightness.
+   float3 c=sample.rgb/max(sample.a,.00001);
    return lerp(dot(c,float3(.2126,.7152,.0722)).xxx,c,saturationAmount);
  }
- float4 main(float2 uv : TEXCOORD) : COLOR {
-   float2 p = (uv-.5)*dimensions;
-   float2 q = abs(p)-(dimensions*.5-radius);
-   float d = length(max(q,0))+min(max(q.x,q.y),0)-radius;
+ float3 displaced(float2 uv) {
    float2 mapUV=(uv-.5)*dimensions/max(dimensions.x,dimensions.y)+.5;
    float4 map=tex2D(displacementMap,mapUV);
    if(mode>2.5){
@@ -96,7 +97,21 @@ public sealed class LiquidGlassEffect : ShaderEffect
    refracted.g=blurred(uv+offset*(sign-aberration*.05)).g;
    refracted.b=blurred(uv+offset*(sign-aberration*.1)).b;
    float mask=map.a>=.666667?1:map.a>=.333333?aberration*.05:0;
-   float3 color=lerp(blurred(uv),refracted,mask);
+   return lerp(blurred(uv),refracted,mask);
+ }
+ float4 main(float2 hostUV : TEXCOORD) : COLOR {
+   float2 uv=(hostUV*sourceDimensions-origin)/dimensions;
+   float2 p = (uv-.5)*dimensions;
+   float2 q = abs(p)-(dimensions*.5-radius);
+   float d = length(max(q,0))+min(max(q.x,q.y),0)-radius;
+   // Original SVG blurs RGB_COMBINED after displacement, independently of backdrop blur.
+   float sigma=max(.1,.5-aberration*.1);
+   float weight=exp(-.5/(sigma*sigma));float3 color=0;
+   [loop] for(int y=-1;y<=1;y++) [loop] for(int x=-1;x<=1;x++) {
+     float w=(x==0?1:weight)*(y==0?1:weight);
+     color+=displaced(uv+float2(x,y)/dimensions)*w;
+   }
+   color/=((1+2*weight)*(1+2*weight));
    color=lerp(color,max(0,2*color*.8-1),overLight);
    color=lerp(color,tint.rgb,tintOpacity);
    float angle=(135+pointer.x*1.2)*.0174532925;
@@ -115,8 +130,10 @@ public sealed class LiquidGlassEffect : ShaderEffect
    color=lerp(color,saturate(color*2),saturate(1-radial/.5)*.25*max(hovered,pressed));
    color=lerp(color,saturate(color*2),saturate(1-radial/.8)*.5*pressed);
    color=lerp(color,saturate(color*2),saturate(1-radial)*(hovered>.01?.4*hovered:.8*pressed));
-   float inset=(1-smoothstep(0,.5,-d))*.5+(1-smoothstep(.5,3,-d))*.08;
-   color=1-(1-color)*(1-inset);
+   // Each original border layer masks its inset shadows to a 1.5px rim.
+   float inset=((1-smoothstep(0,.5,-d))*.5+(1-smoothstep(.5,3,-d))*.25)*rimMask;
+   color=1-(1-color)*(1-inset*.2);
+   color=lerp(color,saturate(color*2),inset);
    return float4(saturate(color),1);
  }
  """;

@@ -21,6 +21,7 @@ internal sealed class GlassController : IDisposable
  private int generation;
  private byte[]? pending;
  private int pendingWidth,pendingHeight;
+ private System.Windows.Rect pendingBounds;
  private TimeSpan previousRenderingTime=TimeSpan.MinValue;
  private double lastUploadSeconds;
  private readonly System.Diagnostics.Stopwatch clock=System.Diagnostics.Stopwatch.StartNew();
@@ -94,7 +95,7 @@ internal sealed class GlassController : IDisposable
     lastCapture=System.Diagnostics.Stopwatch.GetTimestamp();
     var started=System.Diagnostics.Stopwatch.GetTimestamp();
     byte[]? bytes; int width,height;
-    try { capture??=new DesktopBackdrop(hwnd); bytes=capture.Capture(hwnd,out width,out height); }
+    try { capture??=new DesktopBackdrop(hwnd);capture.SamplingPadding=surface.SamplingPadding; bytes=capture.Capture(hwnd,out width,out height); }
     catch(Exception error) when(error.HResult==unchecked((int)0x887A0026)) {
      // DXGI access loss is a recoverable display/compositor transition. Keep the last image.
      capture?.Dispose(); capture=null; token.WaitHandle.WaitOne(50); continue;
@@ -105,10 +106,11 @@ internal sealed class GlassController : IDisposable
     token.ThrowIfCancellationRequested();
     presented.Reset();
     // A single frame in flight: this buffer cannot be overwritten until the UI has copied it.
+    var sourceBounds=capture.SourceBounds;
     dispatcher.BeginInvoke(DispatcherPriority.Render,()=> {
      if(disposed||current!=generation)return;
      if(Suspended) {presented.Set();return;}
-     pending=bytes; pendingWidth=width; pendingHeight=height;
+     pending=bytes; pendingWidth=width; pendingHeight=height;pendingBounds=sourceBounds;
      if(!subscribed) { CompositionTarget.Rendering+=Present; subscribed=true; }
     });
     started=System.Diagnostics.Stopwatch.GetTimestamp(); presented.Wait(token); PresentationWaitMilliseconds+=System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -138,7 +140,7 @@ internal sealed class GlassController : IDisposable
   CompositionTarget.Rendering-=Present; subscribed=false;
   try {
    if(disposed||Suspended||pending is null) return;
-   surface.SetBackdrop(pending,pendingWidth,pendingHeight);
+   surface.SetBackdrop(pending,pendingWidth,pendingHeight,pendingBounds);
    LastFrame=pending; LastWidth=pendingWidth; LastHeight=pendingHeight;
    Frames++; Uploads++; Status="Live DXGI / native HLSL";
    double now=clock.Elapsed.TotalSeconds;

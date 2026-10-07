@@ -19,6 +19,7 @@ internal static class FullGlassValidation
   try{
    await Task.Delay(2200);if(island.Glass?.LastFrame is null)throw new InvalidOperationException("Live backdrop unavailable: "+island.Glass?.Status);
    var frameWidth=island.Glass.LastWidth;var frameHeight=island.Glass.LastHeight;
+   var originalFrame=island.Glass.LastFrame.ToArray();var originalBounds=surface.CaptureBounds;
    island.Glass.Dispose(); // Freeze our authored backdrop, then capture the actual GPU-rendered island.
    using var capture=new DesktopBackdrop(island.Native!.Handle);
    byte[]? previousShot=null;
@@ -28,11 +29,38 @@ internal static class FullGlassValidation
    foreach(var mode in new[]{RefractionMode.Polar,RefractionMode.Prominent,RefractionMode.Shader})Different(baseline,await Shot(mode.ToString().ToLowerInvariant(),new(Mode:mode)),"GPU refraction "+mode);
    foreach(var item in new[]{("displacement",new GlassMaterial(Displacement:0)),("blur",new GlassMaterial(Blur:1)),("saturation",new GlassMaterial(Saturation:0)),("aberration",new GlassMaterial(Aberration:5)),("overlight",new GlassMaterial(OverLight:true)),("tint",new GlassMaterial(TintOpacity:.8)),("radius",new GlassMaterial(CornerRadius:0))})Different(baseline,await Shot(item.Item1,item.Item2),"GPU "+item.Item1);
    surface.ConfigureMaterial(new(),true);var anchor=((FrameworkElement)island.FindName("Expanded")).TranslatePoint(new(),island);
+   surface.SetInteraction(new Point(150,25),true,false,false);
+   if(Math.Abs(surface.HighlightOffset.X-150d/380*100)>1e-6||Math.Abs(surface.HighlightOffset.Y-25d/220*100)>1e-6)throw new InvalidOperationException("Highlight input must use original percentage units.");
+   checks.Add("original percentage highlight input at expanded size");
+   surface.SetShape(180,32,16);surface.SetInteraction(new Point(45,8),true,false,false);
+   if(Math.Abs(surface.HighlightOffset.X-25)>1e-6||Math.Abs(surface.HighlightOffset.Y-25)>1e-6)throw new InvalidOperationException("Compact highlight normalization incorrect.");
+   checks.Add("original percentage highlight input at compact size");surface.SetShape(380,220,28);surface.SetInteraction(new(),false,false,false);
+   if(((FrameworkElement)surface.Child!).Effect is not null)throw new InvalidOperationException("Content container must not cast a shadow.");
+   checks.Add("text shadow excludes content container and ring graphics");
    surface.SetInteraction(new Point(150,25),true,false,true);await Task.Delay(400);var hover=await Shot("hover",new());Different(baseline,hover,"hover stretch and highlights");
    surface.SetInteraction(new Point(150,25),true,true,true);await Task.Delay(400);Different(hover,await Shot("press",new()),"press response");
    if(((FrameworkElement)island.FindName("Expanded")).TranslatePoint(new(),island)!=anchor)throw new InvalidOperationException("Text anchor moved with material.");checks.Add("text anchor stays fixed during material stretch");
    surface.SetInteraction(new(),false,false,true);await Task.Delay(450);if(Animations.AnimationClock.Current.ActiveCount!=0)throw new InvalidOperationException("Material animations remain active at idle.");checks.Add("material animation subscriptions stop at idle");
-   surface.Child!.Visibility=Visibility.Hidden;
+   surface.Child!.Visibility=Visibility.Hidden;surface.SetShape(380,220,28);
+   var sourceWidth=(int)IslandGeometry.HostWidth;var sourceHeight=(int)IslandGeometry.HostHeight;
+   var step=new byte[sourceWidth*sourceHeight*4];
+   for(int y=0;y<sourceHeight;y++)for(int x=sourceWidth/2;x<sourceWidth;x++)for(int c=0;c<3;c++)step[(y*sourceWidth+x)*4+c]=255;
+   surface.SetBackdrop(step,sourceWidth,sourceHeight,new Rect(0,0,sourceWidth,sourceHeight));
+   var gaussian=await Shot("gaussian-step",new(Displacement:0,Blur:.0625,Saturation:100,TintOpacity:0));
+   var scale=VisualTreeHelper.GetDpi(island).DpiScaleX;var shotWidth=(int)Math.Round(island.Width*scale);
+   int Sample(byte[] image,double x,double y,int channel)=>image[((int)Math.Round(y*scale)*shotWidth+(int)Math.Round(x*scale))*4+channel];
+   var profile=Enumerable.Range(-4,9).Select(i=>Sample(gaussian,sourceWidth/2d+i*3,110,2)).ToArray();
+   for(int i=1;i<profile.Length;i++)if(profile[i]<profile[i-1])throw new InvalidOperationException("Gaussian edge is not monotonic.");
+   if(profile[2]<25||profile[2]>70||profile[6]<190||profile[6]>240)throw new InvalidOperationException("Gaussian sigma does not match CSS blur(6px): "+string.Join(",",profile));
+   checks.Add("GPU Gaussian step profile matches 6px sigma: "+string.Join(",",profile));
+   Array.Clear(step);for(int y=0;y<sourceHeight;y++)for(int x=0;x<112;x++)step[(y*sourceWidth+x)*4+2]=255;
+   surface.SetShape(180,32,16);surface.SetBackdrop(step,sourceWidth,sourceHeight,new Rect(0,0,sourceWidth,sourceHeight));
+   var compactBlur=await Shot("compact-outside-sampling",new(Displacement:0,Blur:.0625,Saturation:100,TintOpacity:0));
+   var outside=Sample(compactBlur,118,16,2);if(outside<15||outside>90)throw new InvalidOperationException("Compact blur does not read pixels outside pill: "+outside);
+   checks.Add("compact Gaussian reads outside pill: red="+outside);
+   surface.SetBackdrop(originalFrame,frameWidth,frameHeight,originalBounds);surface.SetShape(380,220,28);
+   if(originalBounds.Width<=IslandGeometry.HostWidth||originalBounds.Height<=IslandGeometry.HostHeight)throw new InvalidOperationException("Backdrop capture has no blur/refraction margin.");
+   checks.Add("capture margin follows Gaussian radius and displacement: "+originalBounds);
    foreach(var shape in new[]{(180d,32d,16d),(280d,126d,22d),(380d,220d,28d)})foreach(var edge in Enum.GetValues<DockEdge>()){
     surface.SetShape(shape.Item1,shape.Item2,shape.Item3,edge);var mask=surface.OpacityMask;
     var masked=await Shot("mask-"+edge+"-"+(int)shape.Item1,new(TintOpacity:1));surface.OpacityMask=null;

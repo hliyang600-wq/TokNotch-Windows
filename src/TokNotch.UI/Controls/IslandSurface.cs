@@ -13,7 +13,11 @@ namespace TokNotch.UI.Controls;
 public sealed class IslandSurface : Grid
 {
     private readonly ImageBrush backgroundImage = new() { Stretch=Stretch.Fill, ViewboxUnits=BrushMappingMode.RelativeToBoundingBox };
-    private readonly System.Windows.Shapes.Rectangle backdrop = new() { IsHitTestVisible=false,Visibility=Visibility.Collapsed };
+    private readonly Grid backdrop = new() { IsHitTestVisible=false,Visibility=Visibility.Collapsed,ClipToBounds=true,Width=IslandGeometry.HostWidth,Height=IslandGeometry.HostHeight };
+    private readonly BlurEffect backgroundBlur = new() { KernelType=KernelType.Gaussian,RenderingBias=RenderingBias.Quality };
+    private readonly Grid blurInput=new() { Width=IslandGeometry.HostWidth,Height=IslandGeometry.HostHeight,ClipToBounds=true };
+    private Rect sourceBounds=new(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight);
+    internal int SamplingPadding { get; private set; }=55;
     private readonly RectangleGeometry roundedClip = new();
     private readonly Border rim = new() { BorderThickness=new Thickness(1), IsHitTestVisible=false };
     private readonly Border content = new() { Background=Brushes.Transparent,Width=IslandGeometry.ExpandedWidth,Height=IslandGeometry.ExpandedHeight };
@@ -27,11 +31,13 @@ public sealed class IslandSurface : Grid
     private Point pointer;
     public UIElement? Child { get=>content.Child; set=>content.Child=value; }
     public bool SupportsGlass => glass is not null;
-    internal double MaterialWidth => backdrop.Width;
-    internal double MaterialHeight => backdrop.Height;
+    internal double MaterialWidth => roundedClip.Rect.Width;
+    internal double MaterialHeight => roundedClip.Rect.Height;
     internal int BitmapAllocations { get; private set; }
     internal int ViewportUpdates { get; private set; }
-    internal Rect BackdropViewport => backgroundImage.Viewbox;
+    internal Rect BackdropViewport => new(roundedClip.Rect.X/IslandGeometry.HostWidth,roundedClip.Rect.Y/IslandGeometry.HostHeight,MaterialWidth/IslandGeometry.HostWidth,MaterialHeight/IslandGeometry.HostHeight);
+    internal Point HighlightOffset => glass?.HighlightOffset??new();
+    internal Rect CaptureBounds => sourceBounds;
     public IslandSurface()
     {
         interaction=Enumerable.Range(0,6).Select(_=>new AnimatedScalar(_=>PresentShape())).ToArray();
@@ -41,7 +47,8 @@ public sealed class IslandSurface : Grid
         rim.BorderBrush = new LinearGradientBrush(Color.FromArgb(120,255,255,255),Color.FromArgb(16,255,255,255),75);
         try { glass=new LiquidGlassEffect(); backdrop.Effect=glass; } catch { }
         Children.Add(backdrop); Children.Add(rim); Children.Add(content);
-        backdrop.Fill=backgroundImage; Clip=roundedClip;
+        blurInput.Children.Add(new System.Windows.Shapes.Rectangle { Fill=backgroundImage,Effect=backgroundBlur });backdrop.Children.Add(blurInput); Clip=roundedClip;
+        content.Loaded+=(_,_)=>ApplyTextShadow(content);
         // Smooth coverage lives in a native mask, independent of each captured shader frame.
         OpacityMask=new DrawingBrush(new GeometryDrawing(Brushes.White,null,roundedClip)) { ViewportUnits=BrushMappingMode.Absolute,Viewport=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),ViewboxUnits=BrushMappingMode.Absolute,Viewbox=new Rect(0,0,IslandGeometry.HostWidth,IslandGeometry.HostHeight),Stretch=Stretch.Fill };
         Width=IslandGeometry.HostWidth; Height=IslandGeometry.HostHeight;
@@ -63,10 +70,20 @@ public sealed class IslandSurface : Grid
     {
         material=settings;materialEnabled=enabled;glass?.Configure(settings);
         Effect=enabled?new DropShadowEffect{Color=Colors.Black,Opacity=settings.OverLight?.75:.25,BlurRadius=settings.OverLight?70:40,ShadowDepth=settings.OverLight?16:12,Direction=270}:null;
-        content.Effect=enabled&&!settings.OverLight?new DropShadowEffect{Color=Colors.Black,Opacity=.4,BlurRadius=12,ShadowDepth=2,Direction=270}:null;
+        // WPF Gaussian sigma is Radius/3; CSS blur() specifies sigma directly.
+        backgroundBlur.Radius=3*((settings.OverLight?12:4)+settings.Blur*32);
+        SamplingPadding=(int)Math.Ceiling(backgroundBlur.Radius+settings.Displacement*(settings.OverLight?.25:.5)+2);
+        content.Effect=null;ApplyTextShadow(content);
         rim.Opacity=enabled?0:1;PresentShape();
         backdrop.Visibility=enabled&&bitmap is not null?Visibility.Visible:Visibility.Collapsed;
     }
+    private void ApplyTextShadow(DependencyObject element)
+    {
+        if(element is TextBlock text)text.Effect=materialEnabled&&!material.OverLight?TextShadow:null;
+        for(var i=0;i<VisualTreeHelper.GetChildrenCount(element);i++)ApplyTextShadow(VisualTreeHelper.GetChild(element,i));
+    }
+    private static readonly DropShadowEffect TextShadow=MakeTextShadow();
+    private static DropShadowEffect MakeTextShadow(){var effect=new DropShadowEffect{Color=Colors.Black,Opacity=.4,BlurRadius=36,ShadowDepth=2,Direction=270};effect.Freeze();return effect;}
     internal void SetInteraction(Point point,bool hovered,bool pressed,bool animate)
     {
         pointer=point;var target=material.Interaction(point.X,point.Y,baseWidth,baseHeight,pressed);
@@ -87,16 +104,18 @@ public sealed class IslandSurface : Grid
         content.VerticalAlignment=edge==DockEdge.Top?VerticalAlignment.Top:edge==DockEdge.Bottom?VerticalAlignment.Bottom:VerticalAlignment.Center;
         backdrop.HorizontalAlignment=rim.HorizontalAlignment=HorizontalAlignment.Left;
         backdrop.VerticalAlignment=rim.VerticalAlignment=VerticalAlignment.Top;
-        backdrop.Margin=rim.Margin=new Thickness(x,y,0,0);
-        backdrop.Width=rim.Width=width; backdrop.Height=rim.Height=height; rim.CornerRadius = new CornerRadius(radius);
+        backdrop.Margin=new Thickness(sourceBounds.Left,sourceBounds.Top,0,0);rim.Margin=new Thickness(x,y,0,0);
+        backdrop.Width=blurInput.Width=sourceBounds.Width;backdrop.Height=blurInput.Height=sourceBounds.Height;
+        rim.Width=width; rim.Height=height; rim.CornerRadius = new CornerRadius(radius);
         roundedClip.Rect=new Rect(x,y,width,height); roundedClip.RadiusX=roundedClip.RadiusY=radius;
-        // Crop the cached expanded rectangle in desktop coordinates, never stretch an old compact frame.
-        backgroundImage.Viewbox=new Rect(x/IslandGeometry.HostWidth,y/IslandGeometry.HostHeight,width/IslandGeometry.HostWidth,height/IslandGeometry.HostHeight);
+        // Blur and displace the complete host image; only clip after sampling outside the pill.
+        backgroundImage.Viewbox=new Rect(0,0,1,1);
         ViewportUpdates++;
-        if(glass is not null) { glass.Dimensions=new Point(width,height); glass.Radius=radius;glass.Interaction(pointer,interaction[4].Value??0,interaction[5].Value??0); }
+        if(glass is not null) { glass.Dimensions=new Point(width,height);glass.SourceDimensions=new Point(sourceBounds.Width,sourceBounds.Height);glass.Origin=new Point(x-sourceBounds.Left,y-sourceBounds.Top);glass.Radius=radius;glass.Interaction(new Point(pointer.X/width*100,pointer.Y/height*100),interaction[4].Value??0,interaction[5].Value??0); }
     }
-    internal void SetBackdrop(byte[] pixels,int width,int height)
+    internal void SetBackdrop(byte[] pixels,int width,int height,Rect? bounds=null)
     {
+        if(bounds is {} next&&next!=sourceBounds){sourceBounds=next;PresentShape();}
         if(bitmap is null||bitmap.PixelWidth!=width||bitmap.PixelHeight!=height) { bitmap=new WriteableBitmap(width,height,96,96,PixelFormats.Bgr32,null); backgroundImage.ImageSource=bitmap; BitmapAllocations++; }
         bitmap.WritePixels(new Int32Rect(0,0,width,height),pixels,width*4,0);
         backdrop.Visibility=materialEnabled?Visibility.Visible:Visibility.Collapsed;

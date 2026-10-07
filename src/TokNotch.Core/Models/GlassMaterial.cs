@@ -2,7 +2,7 @@ namespace TokNotch.Core.Models;
 
 public enum RefractionMode { Standard, Polar, Prominent, Shader }
 
-public sealed record GlassMaterial(RefractionMode Mode=RefractionMode.Standard,double Displacement=70,double Blur=.0625,double Saturation=140,double Aberration=2,double Elasticity=.15,double CornerRadius=28,bool OverLight=false,double TintOpacity=.08)
+public sealed record GlassMaterial(RefractionMode Mode=RefractionMode.Standard,double Displacement=70,double Blur=.0625,double Saturation=140,double Aberration=2,double Elasticity=.15,double CornerRadius=28,bool OverLight=false,double TintOpacity=0)
 {
  public void Validate()
  {
