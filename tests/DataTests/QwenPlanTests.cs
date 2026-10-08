@@ -10,7 +10,7 @@ internal static class QwenPlanTests
  public static async Task Run(string root)
  {
   int checks=0;void Check(bool ok,string label){if(!ok)throw new Exception(label);Console.WriteLine("PASS "+label);checks++;}
-  var handler=new Handler();var clock=new Clock();using var source=new QwenPlanSource(new HttpClient(handler),clock);
+  var clock=new Clock();var handler=new Handler{Reset=DateTimeOffset.FromUnixTimeMilliseconds(clock.Now.AddDays(20).ToUnixTimeMilliseconds())};using var source=new QwenPlanSource(new HttpClient(handler),clock);
   var empty=await source.ReadAsync(default);Check(empty.Ring.Fraction is null&&!empty.TokenUsageAvailable&&!empty.RefreshFailed&&handler.Count==0,"unconnected Qwen quota is unknown and consumes no network or fabricated tokens");
   source.Configure("session=fixture-cookie");var result=await source.ReadAsync(default);
   Check(result.Provider==Provider.Qwen&&result.Detection==DetectionState.Ready&&result.Ring.Fraction==.75&&result.Balance is null,"Qwen monthly used fraction .25 becomes .75 remaining, not yuan or raw tokens");
@@ -32,7 +32,7 @@ internal static class QwenPlanTests
   handler.Used=25;source.Configure("session=fixture-cookie");Check((await source.ReadAsync(default)).Ring.Fraction is null,"old 0-to-100 percentage convention is rejected instead of silently producing a wrong quota");
   handler.Used=.2;handler.MonthMissing=true;source.Configure("session=fixture-cookie");Check((await source.ReadAsync(default)).RefreshFailed,"obsolete weekly fields are not relabelled as current monthly credits");handler.MonthMissing=false;
   handler.BusinessFailure=true;source.Configure("session=fixture-cookie");Check((await source.ReadAsync(default)).RefreshFailed,"HTTP 200 with nested business failure never becomes a successful quota");handler.BusinessFailure=false;
-  handler.Reset=DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.Now.AddMinutes(-1).ToUnixTimeMilliseconds());source.Configure("session=fixture-cookie");Check((await source.ReadAsync(default)).RefreshFailed,"elapsed quota reset cannot be marked fresh");handler.Reset=DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.Now.AddDays(20).ToUnixTimeMilliseconds());
+  handler.Reset=DateTimeOffset.FromUnixTimeMilliseconds(clock.Now.AddMinutes(-1).ToUnixTimeMilliseconds());source.Configure("session=fixture-cookie");Check((await source.ReadAsync(default)).RefreshFailed,"elapsed quota reset cannot be marked fresh");handler.Reset=DateTimeOffset.FromUnixTimeMilliseconds(clock.Now.AddDays(20).ToUnixTimeMilliseconds());
   bool rejected=false;try{source.Configure("session=x\r\nInjected: header");}catch(ArgumentException){rejected=true;}Check(rejected,"Qwen cookie header injection rejected");rejected=false;try{source.Configure("sk-sp-fixture");}catch(ArgumentException){rejected=true;}Check(rejected,"model key is not mistaken for a console session");
   var prefs=new DisplayPreferences(new[]{Provider.Qwen,Provider.OpenAI,Provider.Mimo},DisplayPreferences.Default.Metrics);var store=new DisplayPreferencesStore(Path.Combine(root,"qwen-display"));store.Save(prefs);var restored=store.Load();
   Check(restored.Providers[0]==Provider.Qwen&&restored.RingFor(Provider.Qwen).Outer==RingContent.MonthlyRemaining&&restored.RowsFor(Provider.Qwen).SequenceEqual(new[]{RingContent.TodayTokens,RingContent.QuotaResetTime,RingContent.None}),"Qwen today's tokens and reset rows survive settings restart with monthly remaining ring");
