@@ -66,4 +66,3 @@ internal static class BalanceValidation
   model.Apply(original);model.Configure(preferences);model.Select(selected);await File.WriteAllLinesAsync(Path.Combine(output,"balance-ui-checks.txt"),checks);
   }
 }
-

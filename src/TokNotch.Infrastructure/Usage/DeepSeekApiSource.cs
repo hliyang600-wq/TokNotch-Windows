@@ -8,11 +8,11 @@ public sealed class DeepSeekApiSource : IDisposable
 {
  private sealed record Account(decimal Total,decimal Cash,decimal Granted,string Currency,string Status);
  private readonly HttpClient client;
- private string? key;private Account? previous;private DateTimeOffset next;private int revision;private string status="未连接 · 设置 → DeepSeek API";
+ private bool failed;private string? key;private Account? previous;private DateTimeOffset next;private int revision;private string status="未连接 · 设置 → DeepSeek API";
  /// <summary>Shortest gap between two official balance queries; the tray refresh calls RequestRefresh and ignores it.</summary>
  public TimeSpan Interval {get;set;}=TimeSpan.FromMinutes(5);
  public DeepSeekApiSource(HttpClient? httpClient=null)=>client=httpClient??new(new HttpClientHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(15)};
- public void Configure(string apiKey){if(apiKey.Length>8192||apiKey.Contains('\r')||apiKey.Contains('\n'))throw new ArgumentException("API key 格式无效");key=apiKey.Trim();previous=null;next=DateTimeOffset.MinValue;status="待查询";revision++;}
+ public void Configure(string apiKey){if(apiKey.Length>8192||apiKey.Contains('\r')||apiKey.Contains('\n'))throw new ArgumentException("API key 格式无效");key=apiKey.Trim();failed=false;previous=null;next=DateTimeOffset.MinValue;status="待查询";revision++;}
  public void RequestRefresh()=>next=DateTimeOffset.MinValue;
  public async Task<ProviderUsageSnapshot> ReadAsync(ProviderUsageSnapshot local,CancellationToken ct)
  {
@@ -31,14 +31,14 @@ public sealed class DeepSeekApiSource : IDisposable
      var matches=infos.Where(v=>v.GetProperty("currency").GetString()=="CNY").ToArray();if(matches.Length==0)matches=infos.Where(v=>v.GetProperty("currency").GetString()=="USD").ToArray();if(matches.Length!=1)throw new JsonException();var b=matches[0];
      decimal Money(string name)=>decimal.Parse(b.GetProperty(name).GetString()!,NumberStyles.AllowLeadingSign|NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture);
      var result=new Account(Money("total_balance"),Money("topped_up_balance"),Money("granted_balance"),b.GetProperty("currency").GetString()!,$"DeepSeek 余额 · {DateTimeOffset.Now:HH:mm} 更新");
-     if(version==revision){previous=result;status=result.Status;}
+     if(version==revision){previous=result;status=result.Status;failed=false;}
     }
    }catch(OperationCanceledException)when(!ct.IsCancellationRequested){Fail("DeepSeek 请求超时");}
    catch(Exception e)when(e is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException or OverflowException){Fail("DeepSeek 余额查询失败");}
   }
   bool tokens=local.Detection is DetectionState.Ready or DetectionState.DetectedNoUsage;
-  return local with {Detection=tokens?local.Detection:previous!=null?DetectionState.Ready:local.Detection,Balance=previous?.Total,Cash=previous?.Cash,Voucher=previous?.Granted,Currency=previous?.Currency??"CNY",BalanceSource="DeepSeek",TokenUsageAvailable=tokens,BalanceStatus=status+(tokens?" · Token 仅本地":" · Token 历史无接口")};
-  void Fail(string text){if(version==revision)status=text+(previous!=null?" · 上次余额（已过期）":"");}
+  return local with {RefreshFailed=local.RefreshFailed||failed,Detection=tokens?local.Detection:previous!=null?DetectionState.Ready:local.Detection,Balance=previous?.Total,Cash=previous?.Cash,Voucher=previous?.Granted,Currency=previous?.Currency??"CNY",BalanceSource="DeepSeek",TokenUsageAvailable=tokens,BalanceStatus=status+(tokens?" · Token 仅本地":" · Token 历史无接口")};
+  void Fail(string text){if(version==revision){failed=true;status=text+(previous!=null?" · 上次余额（已过期）":"");}}
  }
  public void Dispose()=>client.Dispose();
 }

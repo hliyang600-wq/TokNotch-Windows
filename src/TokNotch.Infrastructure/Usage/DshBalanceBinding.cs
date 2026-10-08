@@ -10,6 +10,6 @@ public static class DshBalanceBinding
  public static ProviderUsageSnapshot Attach(ProviderUsageSnapshot local,ProviderUsageSnapshot deepSeek)
  {
   var detail=deepSeek.BalanceStatus??(deepSeek.Balance is null?"DeepSeek 余额未连接 · 设置 → DeepSeek API":"DeepSeek 余额已连接");
-  return local with {Balance=deepSeek.Balance,Currency=deepSeek.Currency,BalanceSource="DeepSeek",BalanceStatus=$"{Association} · {detail}"};
+  return local with {RefreshFailed=local.RefreshFailed||deepSeek.RefreshFailed,Balance=deepSeek.Balance,Currency=deepSeek.Currency,BalanceSource="DeepSeek",BalanceStatus=$"{Association} · {detail}"};
  }
 }

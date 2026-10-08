@@ -135,4 +135,3 @@ internal static class Validation
         using var stream = File.Create(Path.Combine(output, name + ".png")); png.Save(stream);
     }
 }
-

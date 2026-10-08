@@ -18,4 +18,3 @@ public sealed class DispatcherDeferredScheduler(Dispatcher dispatcher) : IDeferr
         public void Dispose() { _timer.Stop(); _timer.Tick -= Tick; _action = null; }
     }
 }
-

@@ -47,4 +47,3 @@ internal static class ElasticValidation
  }
  private static async Task Idle(){for(int i=0;i<100&&AnimationClock.Current.ActiveCount>0;i++)await Task.Delay(15);}
 }
-

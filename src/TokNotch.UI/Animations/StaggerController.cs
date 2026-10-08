@@ -19,4 +19,3 @@ public sealed class StaggerController(params FrameworkElement[] rows)
         }
     }
 }
-

@@ -8,7 +8,7 @@ using TokNotch.Core.Models;
 namespace TokNotch.UI.Glass;
 
 // Native port of rdev/liquid-glass-react maps, RGB displacement and shader-utils.
-// See Licenses/liquid-glass-react-MIT.txt and shuding-liquid-glass-LICENSE.txt.
+// See Licenses/liquid-glass-react-LICENSE.txt and shuding-liquid-glass-LICENSE.txt.
 public sealed class LiquidGlassEffect : ShaderEffect
 {
  public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(LiquidGlassEffect), 0,SamplingMode.Bilinear);

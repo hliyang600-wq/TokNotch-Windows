@@ -27,4 +27,3 @@ internal static class ThemeManager
   foreach(var pair in palette){var brush=new SolidColorBrush((Color)ColorConverter.ConvertFromString(light?pair.Value.Light:pair.Value.Dark));brush.Freeze();Application.Current.Resources[pair.Key]=brush;}
  }
 }
-

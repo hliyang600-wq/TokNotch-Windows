@@ -22,6 +22,7 @@ GlassMaterialTests.Run(root);
 await ApiKeyTests.Run(root);
 await RefreshTests.Run(root);
 await AuthenticationTests.Run(root);
+await QwenPlanTests.Run(root);
 sealed class Handler:HttpMessageHandler
 {
  public HttpStatusCode Status=HttpStatusCode.OK;public int Requests;public string Body="{\"code\":0,\"status\":true,\"data\":{\"available_balance\":12.5,\"cash_balance\":-1,\"voucher_balance\":13.5}}";

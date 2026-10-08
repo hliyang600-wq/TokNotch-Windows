@@ -113,4 +113,3 @@ internal static class GlassValidation
  [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct PointI { public int X,Y; }
  [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(PointI point);
 }
-

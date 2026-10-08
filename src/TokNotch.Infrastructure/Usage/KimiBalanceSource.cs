@@ -18,10 +18,7 @@ public sealed class KimiBalanceSource : IDisposable
   var version=revision;var activeKey=key;
   try{using var request=new HttpRequestMessage(HttpMethod.Get,"https://api.moonshot.cn/v1/users/me/balance");request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",activeKey);using var response=await client.SendAsync(request,ct);if(!response.IsSuccessStatusCode)return Failure($"Kimi HTTP {(int)response.StatusCode}");using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));var root=doc.RootElement;if(root.GetProperty("code").GetInt32()!=0||root.GetProperty("status").ValueKind!=JsonValueKind.True)return Failure("Kimi 返回失败状态");var data=root.GetProperty("data");var result=Empty($"余额 CNY · {DateTimeOffset.Now:HH:mm} 更新") with {Detection=DetectionState.Ready,Balance=data.GetProperty("available_balance").GetDecimal(),Cash=data.GetProperty("cash_balance").GetDecimal(),Voucher=data.GetProperty("voucher_balance").GetDecimal()};if(version==revision)previous=result;return version==revision?result:Empty("连接已更改 · 待刷新");}
   catch(OperationCanceledException)when(!ct.IsCancellationRequested){return Failure("Kimi 请求超时");}catch(Exception e)when(e is HttpRequestException or JsonException or KeyNotFoundException or FormatException or InvalidOperationException){return Failure("Kimi 连接失败");}
-  ProviderUsageSnapshot Failure(string text){ if(version!=revision)return Empty("连接已更改 · 待刷新");previous=previous?.Balance is not null ? previous with {SourceStatus=text+" · 上次余额（已过期）"} : Empty(text); return previous; }
+  ProviderUsageSnapshot Failure(string text){ if(version!=revision)return Empty("连接已更改 · 待刷新");previous=previous?.Balance is not null ? previous with {RefreshFailed=true,SourceStatus=text+" · 上次余额（已过期）"} : Empty(text) with {RefreshFailed=true}; return previous; }
  }
  public void Dispose()=>client.Dispose();
 }
-
-
-

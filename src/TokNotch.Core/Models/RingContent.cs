@@ -11,14 +11,17 @@ public enum RingContent
     TodayTokens,
     MonthTokens,
     AllTimeTokens,
-    TodayOfMonth
+    TodayOfMonth,
+    MonthlyRemaining,
+    MonthlyUsed,
+    QuotaResetTime
 }
 
 public sealed record RingChoice(RingContent Outer, RingContent Inner, long TokenBaseline = 100_000_000);
 
 public static class RingChoices
 {
-    public static RingChoice Default(Provider provider) => provider == Provider.OpenAI
+    public static RingChoice Default(Provider provider) => provider == Provider.Qwen?new(RingContent.MonthlyRemaining,RingContent.None):provider == Provider.OpenAI
         ? new(RingContent.FiveHourRemaining, RingContent.WeeklyRemaining)
         : new(RingContent.Balance, RingContent.None);
 
@@ -28,6 +31,7 @@ public static class RingChoices
         return provider switch
         {
             Provider.OpenAI => new[]{RingContent.FiveHourRemaining,RingContent.WeeklyRemaining}.Concat(tokens).ToArray(),
+            Provider.Qwen => new[]{RingContent.MonthlyRemaining,RingContent.MonthlyUsed},
             Provider.Kimi => new[]{RingContent.Balance,RingContent.CashBalance,RingContent.GiftBalance},
             Provider.Mimo => new[]{RingContent.Balance,RingContent.CashBalance,RingContent.GiftBalance}.Concat(tokens).ToArray(),
             Provider.Dsh or Provider.DeepSeek => new[]{RingContent.Balance}.Concat(tokens).ToArray(),
@@ -40,6 +44,9 @@ public static class RingChoices
         RingContent.None => "不显示内圈",
         RingContent.FiveHourRemaining => "5 小时剩余额度",
         RingContent.WeeklyRemaining => "一周剩余额度",
+        RingContent.MonthlyRemaining => "月剩余额度",
+        RingContent.MonthlyUsed => "月已用额度",
+        RingContent.QuotaResetTime => "下次重置",
         RingContent.Balance => "可用余额",
         RingContent.CashBalance => "现金余额",
         RingContent.GiftBalance => "赠金余额",

@@ -27,8 +27,7 @@ public sealed class RingChart : FrameworkElement
     private AnimatedScalar? _innerAnimation;
     private double? _displayed;
     private double? _displayedInner;
-    private Pen Track=>new(TryFindResource("RingTrack") as Brush??Brushes.DimGray,5.5);
-    private Pen InnerTrack=>new(TryFindResource("RingTrack") as Brush??Brushes.DimGray,4);
+    private readonly Pen track=MakePen(5.5),innerTrack=MakePen(4),outer=MakePen(5.5),outerHalo=MakePen(10.5),inner=MakePen(4),innerHalo=MakePen(9);
     public double? DisplayedFraction => _displayed;
     public double? DisplayedInnerFraction => _displayedInner;
     public bool IsAnimating => _animation?.IsRunning == true || _innerAnimation?.IsRunning == true;
@@ -37,7 +36,7 @@ public sealed class RingChart : FrameworkElement
         Loaded += (_, _) => Update(false);
         Unloaded += (_, _) => { _animation?.Dispose(); _animation = null; _innerAnimation?.Dispose(); _innerAnimation = null; };
     }
-    private static Pen MakeTrack(double thickness, byte alpha) { var brush = new SolidColorBrush(Color.FromArgb(alpha, 255, 255, 255)); brush.Freeze(); var pen = new Pen(brush, thickness); pen.Freeze(); return pen; }
+    private static Pen MakePen(double thickness)=>new(null,thickness){StartLineCap=PenLineCap.Round,EndLineCap=PenLineCap.Round};
     private static void Changed(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).Update(false);
     private static void InnerChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).UpdateInner(false);
     private static void IdentityChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) => ((RingChart)element).Replay();
@@ -65,24 +64,24 @@ public sealed class RingChart : FrameworkElement
         base.OnRender(dc);
         var center = new Point(ActualWidth / 2, ActualHeight / 2);
         var radius = Math.Max(0, Math.Min(ActualWidth, ActualHeight) / 2 - 6);
+        track.Brush=innerTrack.Brush=TryFindResource("RingTrack") as Brush??Brushes.DimGray;
+        outer.Brush=outerHalo.Brush=Accent;inner.Brush=innerHalo.Brush=InnerAccent;
         if (!ShowInner)
         {
-            dc.DrawEllipse(null, Track, center, radius, radius);
-            DrawArc(dc, center, radius, _displayed, Accent, 5.5);
+            dc.DrawEllipse(null, track, center, radius, radius);
+            DrawArc(dc, center, radius, _displayed, outer, outerHalo);
             return;
         }
         var innerRadius = Math.Max(0, radius - 10);
-        dc.DrawEllipse(null, Track, center, radius, radius);
-        dc.DrawEllipse(null, InnerTrack, center, innerRadius, innerRadius);
-        DrawArc(dc, center, radius, _displayed, Accent, 5.5);
-        DrawArc(dc, center, innerRadius, _displayedInner, InnerAccent, 4);
+        dc.DrawEllipse(null, track, center, radius, radius);
+        dc.DrawEllipse(null, innerTrack, center, innerRadius, innerRadius);
+        DrawArc(dc, center, radius, _displayed, outer, outerHalo);
+        DrawArc(dc, center, innerRadius, _displayedInner, inner, innerHalo);
     }
-    private static void DrawArc(DrawingContext dc, Point center, double radius, double? displayed, Brush accent, double thickness)
+    private static void DrawArc(DrawingContext dc, Point center, double radius, double? displayed, Pen pen,Pen halo)
     {
         if (displayed is not double fraction || !double.IsFinite(fraction) || fraction <= 0 || radius <= 0) return;
         fraction = Math.Clamp(fraction, 0, 1);
-        var pen = new Pen(accent, thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
-        var halo = new Pen(accent, thickness + 5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
         if (fraction >= .9999) { dc.PushOpacity(.16); dc.DrawEllipse(null, halo, center, radius, radius); dc.Pop(); dc.DrawEllipse(null, pen, center, radius, radius); return; }
         var angle = fraction * Math.PI * 2;
         var path = new StreamGeometry();

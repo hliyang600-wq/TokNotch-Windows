@@ -20,10 +20,15 @@ public partial class SettingsWindow : Window
  private readonly Func<string,Task<string>> connectKimi,connectMimo;
  private readonly Func<string,Task<string>>? connectDeepSeek;
  private readonly Func<Task<string>>? forgetDeepSeek,forgetKimi;
+ private readonly Func<Task<string>>? loginQwen,forgetQwen;
+ private readonly Func<string,Task<string>>? connectQwen;
  private readonly SettingsCommands? commands;
  private readonly Func<Task<string>>? autoMimo; private readonly Func<Task<string>>? disconnectMimo;
  private readonly Provider[] providers;
  private readonly UsageMetric[] metrics;
+ private readonly Dictionary<Provider,IReadOnlyList<RingContent>> rows;
+ private Provider metricEditing=Provider.OpenAI;
+ private bool metricUpdating;
  private readonly Dictionary<Provider,RingChoice> rings;
  private Provider ringEditing=Provider.OpenAI;
  private bool ringUpdating;
@@ -42,17 +47,20 @@ public partial class SettingsWindow : Window
    if(!int.TryParse(RefreshSecondsBox.Text.Trim(),NumberStyles.Integer,CultureInfo.InvariantCulture,out var refresh)||refresh<DisplayPreferences.MinimumRefreshSeconds||refresh>DisplayPreferences.MaximumRefreshSeconds)throw new ArgumentException($"界面刷新间隔需在 {DisplayPreferences.MinimumRefreshSeconds}–{DisplayPreferences.MaximumRefreshSeconds} 秒之间。");
    if(!int.TryParse(BalanceSecondsBox.Text.Trim(),NumberStyles.Integer,CultureInfo.InvariantCulture,out var balance)||balance<DisplayPreferences.MinimumBalanceSeconds||balance>DisplayPreferences.MaximumBalanceSeconds)throw new ArgumentException($"余额查询间隔需在 {DisplayPreferences.MinimumBalanceSeconds}–{DisplayPreferences.MaximumBalanceSeconds} 秒之间。");
    SaveRingEditor();
-   return new(providers,metrics,cny,usd,refresh,balance,SelectedExpansion,SelectedGlass,rings,ReadWindowPreferences());
+   return new(providers,metrics,cny,usd,refresh,balance,SelectedExpansion,SelectedGlass,rings,ReadWindowPreferences(),rows);
   }
  }
  /// <summary>0 = hover, 1 = click, 2 = always expanded; matches the combo item order.</summary>
  internal ExpansionMode SelectedExpansion => WindowModeBox.SelectedIndex switch{1=>ExpansionMode.Click,2=>ExpansionMode.AlwaysExpanded,_=>ExpansionMode.Hover};
  internal bool SelectedGlass => MaterialBox.SelectedIndex!=1;
- public SettingsWindow(DisplayPreferences preferences,Action<DisplayPreferences> savePreferences,Func<string,Task<string>> kimi,Func<string,Task<string>> mimo,Func<Task<string>>? autoConnectMimo=null,Func<Task<string>>? disconnect=null,Func<string,Task<string>>? deepseek=null,Func<Task<string>>? forgetStoredDeepSeek=null,Func<Task<string>>? forgetStoredKimi=null,SettingsCommands? commands=null,IslandWindow? previewIsland=null)
+ public SettingsWindow(DisplayPreferences preferences,Action<DisplayPreferences> savePreferences,Func<string,Task<string>> kimi,Func<string,Task<string>> mimo,Func<Task<string>>? autoConnectMimo=null,Func<Task<string>>? disconnect=null,Func<string,Task<string>>? deepseek=null,Func<Task<string>>? forgetStoredDeepSeek=null,Func<Task<string>>? forgetStoredKimi=null,SettingsCommands? commands=null,IslandWindow? previewIsland=null,Func<Task<string>>? loginQwen=null,Func<string,Task<string>>? connectQwen=null,Func<Task<string>>? forgetQwen=null)
  {
   confirmed=preferences;this.previewIsland=previewIsland;
+  this.loginQwen=loginQwen;this.connectQwen=connectQwen;this.forgetQwen=forgetQwen;
   InitializeComponent();this.commands=commands;RefreshNowButton.IsEnabled=commands!=null;ShowIslandButton.IsEnabled=commands!=null;ExitAppButton.IsEnabled=commands!=null;connectDeepSeek=deepseek;ConnectDeepSeekButton.IsEnabled=deepseek!=null;forgetDeepSeek=forgetStoredDeepSeek;ForgetDeepSeekButton.IsEnabled=forgetDeepSeek!=null;forgetKimi=forgetStoredKimi;ForgetKimiButton.IsEnabled=forgetKimi!=null;autoMimo=autoConnectMimo;disconnectMimo=disconnect;AutoMimoButton.IsEnabled=autoMimo!=null;DisconnectMimoButton.IsEnabled=disconnectMimo!=null;save=savePreferences;connectKimi=kimi;connectMimo=mimo;providers=preferences.Providers.ToArray();metrics=preferences.Metrics.ToArray();rings=preferences.Rings.ToDictionary(pair=>pair.Key,pair=>pair.Value);
+  LoginQwenButton.IsEnabled=loginQwen!=null;ConnectQwenButton.IsEnabled=connectQwen!=null;ForgetQwenButton.IsEnabled=forgetQwen!=null;
   WindowModeBox.SelectedIndex=preferences.Expansion switch{ExpansionMode.Click=>1,ExpansionMode.AlwaysExpanded=>2,_=>0};MaterialBox.SelectedIndex=preferences.GlassEnabled?0:1;
+  rows=preferences.Rows.ToDictionary(pair=>pair.Key,pair=>pair.Value);metricEditing=preferences.Providers[0];metricUpdating=true;MetricProviderBox.ItemsSource=ProviderCatalog.Available;MetricProviderBox.ItemTemplate=(DataTemplate)FindResource("ProviderNameTemplate");MetricProviderBox.SelectedValuePath="Id";MetricProviderBox.SelectedValue=metricEditing;metricUpdating=false;
   SetGlassEditor(preferences.Window.Glass);
   ExpandedCustomFps.Text=preferences.Window.ExpandedRate.CustomFps.ToString(CultureInfo.InvariantCulture);CollapsedCustomFps.Text=preferences.Window.CollapsedRate.CustomFps.ToString(CultureInfo.InvariantCulture);
   ExpandedRateBox.SelectedIndex=(int)preferences.Window.ExpandedRate.Mode;CollapsedRateBox.SelectedIndex=(int)preferences.Window.CollapsedRate.Mode;
@@ -79,7 +87,7 @@ public partial class SettingsWindow : Window
   try
   {
    var window=confirmed.Window with {Theme=(AppearanceTheme)ThemeBox.SelectedIndex,Material=ReadGlassMaterial(),ExpandedGlassRate=ReadGlassRate(ExpandedRateBox,ExpandedCustomFps),CollapsedGlassRate=ReadGlassRate(CollapsedRateBox,CollapsedCustomFps)};
-   var draft=new DisplayPreferences(confirmed.Providers,confirmed.Metrics,confirmed.AmountBaselineCny,confirmed.AmountBaselineUsd,confirmed.RefreshSeconds,confirmed.BalanceRefreshSeconds,confirmed.Expansion,SelectedGlass,confirmed.Rings,window);
+   var draft=new DisplayPreferences(confirmed.Providers,confirmed.Metrics,confirmed.AmountBaselineCny,confirmed.AmountBaselineUsd,confirmed.RefreshSeconds,confirmed.BalanceRefreshSeconds,confirmed.Expansion,SelectedGlass,confirmed.Rings,window,confirmed.Rows);
    previewIsland.PreviewAppearance(draft);
    SaveStatus.Text="正在实时预览 · 点击确认保存，关闭撤销未确认的修改。";
   }
@@ -165,8 +173,14 @@ public partial class SettingsWindow : Window
   updating=false;
  }
  internal void MoveProvider(int index,int delta){int next=index+delta;if(index<0||index>=3||next<0||next>=3)return;(providers[index],providers[next])=(providers[next],providers[index]);RenderProviders();UpdatePreview();}
- private void RenderMetrics(){MetricSlots.Children.Clear();for(int i=0;i<3;i++){int index=i;var row=Slot(i);var label=new Border{Background=new SolidColorBrush(Color.FromRgb(36,38,48)),CornerRadius=new(9),Padding=new(12,10,12,10),Child=new TextBlock{Text=metrics[i] switch{UsageMetric.Today=>"今日用量",UsageMetric.Month=>"本月用量",_=>"累计用量"}}};label.SetResourceReference(Border.BackgroundProperty,"ControlBackground");Grid.SetColumn(label,1);row.Children.Add(label);var arrows=new StackPanel{Orientation=Orientation.Horizontal};arrows.Children.Add(Arrow("↑",()=>MoveMetric(index,-1),i>0));arrows.Children.Add(Arrow("↓",()=>MoveMetric(index,1),i<2));Grid.SetColumn(arrows,2);row.Children.Add(arrows);MetricSlots.Children.Add(row);}}
- internal void MoveMetric(int index,int delta){int next=index+delta;if(index<0||index>=3||next<0||next>=3)return;(metrics[index],metrics[next])=(metrics[next],metrics[index]);RenderMetrics();UpdatePreview();}
+ private void RenderMetrics()
+ {
+  metricUpdating=true;MetricSlots.Children.Clear();
+  for(int i=0;i<3;i++){int index=i;var row=Slot(i);var box=new ComboBox{ItemsSource=DisplayRows.Available(metricEditing).Select(m=>new RingOption(m,DisplayRows.Name(m))).ToArray(),SelectedValuePath="Metric",SelectedValue=rows[metricEditing][i]};System.Windows.Automation.AutomationProperties.SetName(box,$"第 {i+1} 行显示内容");Grid.SetColumn(box,1);row.Children.Add(box);box.SelectionChanged+=(_,_)=>{if(metricUpdating||box.SelectedValue is not RingContent selected)return;var choice=rows[metricEditing].ToArray();var old=choice[index];int other=selected==RingContent.None?-1:Array.IndexOf(choice,selected);if(other>=0)choice[other]=old;choice[index]=selected;rows[metricEditing]=choice;RenderMetrics();UpdatePreview();};var arrows=new StackPanel{Orientation=Orientation.Horizontal};arrows.Children.Add(Arrow("↑",()=>MoveMetric(index,-1),i>0));arrows.Children.Add(Arrow("↓",()=>MoveMetric(index,1),i<2));Grid.SetColumn(arrows,2);row.Children.Add(arrows);MetricSlots.Children.Add(row);}
+  metricUpdating=false;
+ }
+ private void ChangeMetricProvider(object sender,SelectionChangedEventArgs args){if(metricUpdating||MetricProviderBox.SelectedValue is not Provider selected||selected==metricEditing)return;metricEditing=selected;RenderMetrics();}
+ internal void MoveMetric(int index,int delta){int next=index+delta;if(index<0||index>=3||next<0||next>=3)return;var choice=rows[metricEditing].ToArray();(choice[index],choice[next])=(choice[next],choice[index]);rows[metricEditing]=choice;RenderMetrics();UpdatePreview();}
  private void RenderRingEditor()
  {
   ringUpdating=true;
@@ -223,6 +237,9 @@ public partial class SettingsWindow : Window
  private async void ConnectDeepSeek(object sender,RoutedEventArgs args){var secret=DeepSeekKey.Password;DeepSeekKey.Clear();if(connectDeepSeek==null)return;if(string.IsNullOrWhiteSpace(secret)){DeepSeekStatus.Text="请输入 DeepSeek API key。";return;}ConnectDeepSeekButton.IsEnabled=false;DeepSeekStatus.Text="正在查询余额…";try{DeepSeekStatus.Text=await connectDeepSeek(secret);}catch(ArgumentException){DeepSeekStatus.Text="API key 格式无效。";}finally{ConnectDeepSeekButton.IsEnabled=true;}}
  private async void AutoConnectMimo(object sender,RoutedEventArgs args){if(autoMimo==null)return;AutoMimoButton.IsEnabled=false;MimoStatus.Text="请在登录页完成登录…";try{MimoStatus.Text=await autoMimo();}finally{AutoMimoButton.IsEnabled=true;}}
  private async void DisconnectMimo(object sender,RoutedEventArgs args){if(disconnectMimo==null)return;MimoStatus.Text=await disconnectMimo();}
+ private async void LoginQwen(object sender,RoutedEventArgs args){if(loginQwen==null)return;LoginQwenButton.IsEnabled=false;QwenStatus.Text="请在内置页面完成千问登录…";try{QwenStatus.Text=await loginQwen();}finally{LoginQwenButton.IsEnabled=true;}}
+ private async void ConnectQwen(object sender,RoutedEventArgs args){if(connectQwen==null)return;var cookie=QwenCookie.Password;QwenCookie.Clear();if(string.IsNullOrWhiteSpace(cookie)){QwenStatus.Text="请粘贴千问控制台的一行 Cookie。";return;}ConnectQwenButton.IsEnabled=false;try{QwenStatus.Text=await connectQwen(cookie);}catch(ArgumentException error){QwenStatus.Text=error.Message;}finally{ConnectQwenButton.IsEnabled=true;}}
+ private async void ForgetQwen(object sender,RoutedEventArgs args){if(forgetQwen!=null)QwenStatus.Text=await forgetQwen();}
  private async void ForgetDeepSeek(object sender,RoutedEventArgs args){if(forgetDeepSeek==null)return;ForgetDeepSeekButton.IsEnabled=false;try{DeepSeekStatus.Text=await forgetDeepSeek();}finally{ForgetDeepSeekButton.IsEnabled=true;}}
  private async void ForgetKimi(object sender,RoutedEventArgs args){if(forgetKimi==null)return;ForgetKimiButton.IsEnabled=false;try{KimiStatus.Text=await forgetKimi();}finally{ForgetKimiButton.IsEnabled=true;}}
  private async void RefreshNow(object sender,RoutedEventArgs args){if(commands==null)return;RefreshNowButton.IsEnabled=false;CommandStatus.Text="正在刷新…";try{CommandStatus.Text=await commands.Refresh();}catch(Exception error)when(error is IOException or UnauthorizedAccessException){CommandStatus.Text="刷新失败，请重试。";}finally{RefreshNowButton.IsEnabled=true;}}

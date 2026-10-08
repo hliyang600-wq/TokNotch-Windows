@@ -30,4 +30,3 @@ public sealed class AnimatedScalar(Action<double?> present) : IDisposable
     private void Stop() { _subscription?.Dispose(); _subscription = null; }
     public void Dispose() { Stop(); _disposed = true; }
 }
-

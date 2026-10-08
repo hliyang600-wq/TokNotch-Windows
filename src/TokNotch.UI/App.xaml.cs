@@ -19,19 +19,22 @@ public partial class App : Application
  private readonly LocalUsageSource logs=new();
  private readonly KimiBalanceSource kimi=new();
  private readonly MimoUsageSource mimo=new();
+ private readonly QwenPlanSource qwen=new();
  private readonly DeepSeekApiSource deepSeek=new();
  private IslandViewModel? liveModel;
  private IslandWindow? shell;
  private RefreshScheduler? scheduler;
  private SettingsWindow? settingsWindow;
  private MimoLoginWindow? loginWindow; private Task<string>? loginTask;
+ private MimoLoginWindow? qwenLoginWindow;private Task<string>? qwenLoginTask;
  private static string ProjectRoot=>ApplicationPaths.ReportRoot;
  private readonly MimoSessionVault sessionVault=new(ApplicationPaths.DataRoot);
  private readonly ApiKeyVault keyVault=new(ApplicationPaths.DataRoot);
  private readonly DisplayPreferencesStore preferencesStore=new(ApplicationPaths.DataRoot);
  protected override async void OnStartup(StartupEventArgs e)
  {
-  bool diagnostic=e.Args.Any(a=>a is "--validate" or "--live-validate" or "--glass-validate" or "--full-glass-validate" or "--glass-position-validate" or "--auth-validate" or "--data-validate" or "--balance-validate" or "--glass-review" or "--glass-rate-validate" or "--appearance-preview-validate");
+  bool rowsValidation=e.Args.Contains("--rows-validate"),manualValidation=e.Args.Contains("--manual-refresh-validate");
+  bool diagnostic=rowsValidation||manualValidation||e.Args.Any(a=>a is "--validate" or "--live-validate" or "--glass-validate" or "--full-glass-validate" or "--glass-position-validate" or "--auth-validate" or "--data-validate" or "--balance-validate" or "--glass-review" or "--glass-rate-validate" or "--appearance-preview-validate");
   if(!diagnostic)
   {
    singleInstance=new(request=>{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(()=>ActivateExisting(request)));});
@@ -39,26 +42,28 @@ public partial class App : Application
   }
   base.OnStartup(e);if(e.Args.Contains("--auth-validate")){try{await AuthenticationValidation.RunAsync();Shutdown();}catch(Exception error){var report=Path.Combine(ApplicationPaths.ArtifactsDirectory,"authentication-webview-error.txt");await File.WriteAllTextAsync(report,error.GetType().Name+" HRESULT "+error.HResult.ToString("X")+" "+error.Message);Shutdown(1);}return;}
   if(e.Args.Contains("--data-validate")){var data=await Task.Run(()=>logs.Read());var output=ApplicationPaths.ArtifactsDirectory;Directory.CreateDirectory(output);await File.WriteAllTextAsync(Path.Combine(output,"real-data.json"),System.Text.Json.JsonSerializer.Serialize(data.Vendors.Select(v=>new{v.Title,v.Detection,Today=v.Today.Tokens.Total,Month=v.Month.Tokens.Total,AllTime=v.AllTime.Tokens.Total,v.SourceStatus}),new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));Shutdown();return;}
-  var model=new IslandViewModel();var source=new MockUsageSource();bool demo=e.Args.Any(a=>a is "--validate" or "--glass-validate" or "--full-glass-validate" or "--glass-position-validate" or "--glass-review" or "--glass-rate-validate" or "--appearance-preview-validate");
+  var model=new IslandViewModel();var source=new MockUsageSource();bool demo=rowsValidation||manualValidation||e.Args.Any(a=>a is "--validate" or "--glass-validate" or "--full-glass-validate" or "--glass-position-validate" or "--glass-review" or "--glass-rate-validate" or "--appearance-preview-validate");
   Themes.ThemeManager.Apply(AppearanceTheme.Dark);
   if(demo)model.Apply(await source.GetUsageAsync(default));
   else{model.Configure(e.Args.Contains("--live-validate")?DisplayPreferences.Default:preferencesStore.Load());model.Select(model.FirstProvider);model.Apply(new(DateTimeOffset.Now,DateTimeOffset.Now,TimeZoneInfo.Local.Id,false,RefreshState.Refreshing,Array.Empty<ProviderUsageSnapshot>(),Array.Empty<ModelUsage>()));}
-  var island=new IslandWindow(model,!e.Args.Contains("--validate")&&!e.Args.Contains("--live-validate"));MainWindow=island;
+  var island=new IslandWindow(model,!manualValidation&&!e.Args.Contains("--validate")&&!e.Args.Contains("--live-validate"));MainWindow=island;
   island.Closed+=(_,_)=>{if(!e.Args.Any(arg=>arg is "--validate" or "--glass-validate" or "--full-glass-validate" or "--glass-position-validate" or "--live-validate" or "--glass-rate-validate" or "--appearance-preview-validate"))Shutdown();};
   if(e.Args.Contains("--review"))island.ShowInTaskbar=true;
   island.Show();NativeShow(island.Native!.Handle,4);
   if(e.Args.Contains("--review")){var style=TokNotch.Infrastructure.Windows.NativeMethods.GetWindowLongPtr(island.Native.Handle,-20);TokNotch.Infrastructure.Windows.NativeMethods.SetWindowLongPtr(island.Native.Handle,-20,style&~TokNotch.Infrastructure.Windows.NativeMethods.WsExToolWindow);island.Policy.SetMode(TokNotch.Core.Interaction.ExpansionMode.AlwaysExpanded);}
   tray=new();tray.ShowRequested+=()=>island.Policy.ShowExpanded();tray.ExitRequested+=Shutdown;
-  if(!demo){var restoreKeys=!e.Args.Contains("--live-validate");if(restoreKeys&&sessionVault.Load() is {} saved)mimo.Configure(saved.Header);if(restoreKeys&&keyVault.Load() is {} keys){if(keys.DeepSeek is {} deepKey)deepSeek.Configure(deepKey);if(keys.Kimi is {} kimiKey)kimi.Configure(kimiKey);}liveModel=model;shell=island;ApplyRefreshPreferences(model.Preferences);ApplyWindowPreferences(model.Preferences);island.SettingsRequested+=()=>OpenSettings();island.RefreshRequested+=()=>RefreshNowAsync();tray.SettingsRequested+=()=>OpenSettings();tray.RefreshRequested+=()=>_=RefreshNowAsync();await Refresh();
+  if(manualValidation){liveModel=model;shell=island;island.RefreshRequested+=()=>RefreshNowAsync();try{await ManualRefreshValidation.RunAsync(this,island,model,()=>Refresh(),RefreshNowAsync);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","manual-refresh-error.txt"),error.ToString());Shutdown(1);}return;}
+  if(rowsValidation){try{await SettingsValidation.RunRowsAsync(island,model);Shutdown();}catch(Exception error){var report=Path.Combine(ProjectRoot,"artifacts","rows-validation-error.txt");await File.WriteAllTextAsync(report,error.ToString());Shutdown(1);}return;}
+  if(!demo){var restoreKeys=!e.Args.Contains("--live-validate");if(restoreKeys&&sessionVault.Load() is {} saved)mimo.Configure(saved.Header);if(restoreKeys&&keyVault.Load() is {} keys){if(keys.DeepSeek is {} deepKey)deepSeek.Configure(deepKey);if(keys.Kimi is {} kimiKey)kimi.Configure(kimiKey);if(keys.QwenCookie is {} qwenCookie)qwen.Configure(qwenCookie);}liveModel=model;shell=island;ApplyRefreshPreferences(model.Preferences);ApplyWindowPreferences(model.Preferences);island.SettingsRequested+=()=>OpenSettings();island.RefreshRequested+=()=>RefreshNowAsync();tray.SettingsRequested+=()=>OpenSettings();tray.RefreshRequested+=()=>_=RefreshNowAsync();await Refresh();
    if(e.Args.Contains("--balance-validate")){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","real-balances.json"),System.Text.Json.JsonSerializer.Serialize(model.Snapshot!.Vendors.Select(v=>new{v.Title,v.Balance,v.Currency,v.BalanceSource,v.BalanceStatus}),new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));Shutdown();return;}
    if(e.Args.Contains("--live-validate")){try{await LiveValidation.RunAsync(island,model);await BalanceValidation.RunAsync(island,model);await SettingsValidation.RunAsync(model);await WindowSettingsValidation.RunAsync(island,model);await ElasticValidation.RunAsync(island,model);await RefreshValidation.RunAsync(island,model,_=>Refresh());}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","live-validation-error.txt"),error.ToString());Shutdown(1);return;}Shutdown();return;}
    island.PositionChanged+=position=>{var next=model.Preferences.WithWindow(position);model.Configure(next);settingsWindow?.SynchronizePosition(position);try{preferencesStore.Save(next);}catch(Exception error)when(error is IOException or UnauthorizedAccessException){OpenSettings();settingsWindow!.ReportPositionSaveError();}};
    StartRefreshLoop();
   }
   if(e.Args.Contains("--settings"))OpenSettings(e.Args.Contains("--connections"));if(e.Args.Contains("--appearance"))settingsWindow?.ShowAppearancePage();if(e.Args.Contains("--mimo-login")){OpenSettings(true);_=LoginMimo();}
-  if(e.Args.Contains("--appearance-preview-validate")){try{await AppearancePreviewValidation.RunAsync(island,model);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ApplicationPaths.ArtifactsDirectory,"appearance-preview-error.txt"),error.ToString());Shutdown(1);}return;}
+  if(e.Args.Contains("--appearance-preview-validate")){try{await AppearancePreviewValidation.RunAsync(island,model);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","appearance-preview-error.txt"),error.ToString());Shutdown(1);}return;}
   if(e.Args.Contains("--glass-rate-validate")){try{await Glass.GlassFrameRateValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","glass-rate-error.txt"),error.ToString());Shutdown(1);}return;}
-  if(e.Args.Contains("--full-glass-validate")){try{await Glass.FullGlassValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ApplicationPaths.ArtifactsDirectory,"full-glass-error.txt"),error.ToString());Shutdown(1);}return;}
+  if(e.Args.Contains("--full-glass-validate")){try{await Glass.FullGlassValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","full-glass-error.txt"),error.ToString());Shutdown(1);}return;}
   if(e.Args.Contains("--glass-position-validate")){try{await Glass.GlassValidation.RunPositionAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(ProjectRoot,"artifacts","glass-position-error.txt"),error.ToString());Shutdown(1);}}
   if(e.Args.Contains("--glass-validate")){try{await Glass.GlassValidation.RunAsync(island);Shutdown();}catch(Exception error){await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory,"glass-validation-error.txt"),error.ToString());Shutdown(1);}}
   if(e.Args.Contains("--glass-review")){var background=Glass.GlassValidation.Background(island,true);island.Policy.SetMode(TokNotch.Core.Interaction.ExpansionMode.AlwaysExpanded);await Task.Delay(1500);background.Left=island.Left-50;await Task.Delay(700);island.Glass?.Dispose();background.Close();}
@@ -76,7 +81,7 @@ public partial class App : Application
  private void OpenSettings(bool connections=false)
  {
   if(liveModel==null)return;
-  if(settingsWindow==null){settingsWindow=new(liveModel.Preferences,p=>{preferencesStore.Save(p);liveModel.Configure(p);ApplyRefreshPreferences(p);ApplyWindowPreferences(p);},ConnectKimiAsync,async cookie=>{mimo.Configure(cookie);await Refresh();return liveModel.Snapshot?.Vendors.FirstOrDefault(v=>v.Provider==Provider.Mimo)?.SourceStatus??"待刷新";},LoginMimo,DisconnectMimo,ConnectDeepSeekAsync,ForgetDeepSeekKey,ForgetKimiKey,new SettingsCommands(RefreshNowAsync,()=>shell?.Policy.ShowExpanded(),ConfirmExit),shell);settingsWindow.Closed+=(_,_)=>settingsWindow=null;settingsWindow.Show();}
+  if(settingsWindow==null){settingsWindow=new(liveModel.Preferences,p=>{preferencesStore.Save(p);liveModel.Configure(p);ApplyRefreshPreferences(p);ApplyWindowPreferences(p);},ConnectKimiAsync,async cookie=>{mimo.Configure(cookie);await Refresh();return liveModel.Snapshot?.Vendors.FirstOrDefault(v=>v.Provider==Provider.Mimo)?.SourceStatus??"待刷新";},LoginMimo,DisconnectMimo,ConnectDeepSeekAsync,ForgetDeepSeekKey,ForgetKimiKey,new SettingsCommands(RefreshNowAsync,()=>shell?.Policy.ShowExpanded(),ConfirmExit),shell,LoginQwen,ConnectQwenAsync,ForgetQwenCookie);settingsWindow.Closed+=(_,_)=>settingsWindow=null;settingsWindow.Show();}
   if(connections)settingsWindow.ShowConnectionPage();settingsWindow.Activate();
  }
   private async Task<string> ConnectKimiAsync(string key)
@@ -106,16 +111,35 @@ public partial class App : Application
   loginWindow.Closed+=(_,_)=>{loginWindow=null;completion.TrySetResult(remembered?"已自动连接 MiMo，启动时会恢复登录会话。":liveModel?.Snapshot?.Vendors.FirstOrDefault(v=>v.Provider==Provider.Mimo)?.Detection==DetectionState.Ready?"MiMo 已连接，本次会话尚未保存。":"尚未连接，完成登录后可重试。");};loginWindow.Show();return loginTask;
  }
  private async Task<string> DisconnectMimo(){try{sessionVault.Clear();mimo.Disconnect();loginWindow?.Close();await Refresh();return "已断开自动连接。再次登录可重新连接。";}catch(IOException){return "暂时无法清除保存的会话，请重试。";}catch(UnauthorizedAccessException){return "暂时无法清除保存的会话，请重试。";}}
+ private async Task<string> ConnectQwenAsync(string cookie)
+ {
+  qwen.Configure(cookie);await Refresh();var result=liveModel?.Snapshot?.Vendors.FirstOrDefault(v=>v.Provider==Provider.Qwen);
+  if(result?.Detection!=DetectionState.Ready||result.RefreshFailed)return (result?.SourceStatus??"查询失败")+" · 会话未保存";
+  try{keyVault.SetQwenCookie(cookie);return result.SourceStatus+" · 会话已加密保存";}catch(Exception error)when(error is IOException or UnauthorizedAccessException){return "本次已连接，但会话保存失败。";}
+ }
+ private Task<string> LoginQwen()
+ {
+  if(qwenLoginWindow!=null){qwenLoginWindow.Activate();return qwenLoginTask!;}
+  var completion=new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);qwenLoginTask=completion.Task;bool connected=false;
+  qwenLoginWindow=new(ApplicationPaths.DataRoot,async session=>{
+   using var candidate=new QwenPlanSource();candidate.Configure(session.Header);var result=await candidate.ReadAsync(stop.Token);
+   if(result.Detection!=DetectionState.Ready||result.RefreshFailed||stop.IsCancellationRequested||qwenLoginWindow is null)return false;
+   qwen.Configure(session.Header);keyVault.SetQwenCookie(session.Header);await Refresh();connected=true;return true;
+  },true);
+  if(settingsWindow!=null)qwenLoginWindow.Owner=settingsWindow;
+  qwenLoginWindow.Closed+=(_,_)=>{qwenLoginWindow=null;completion.TrySetResult(connected?"千问月 Credits 余量已连接，会话已加密保存。":"尚未连接，完成千问登录后可重试。");};qwenLoginWindow.Show();return qwenLoginTask;
+ }
+ private async Task<string> ForgetQwenCookie(){try{keyVault.SetQwenCookie(null);qwen.Configure("");qwenLoginWindow?.Close();await Refresh();return "已断开千问并清除加密会话。";}catch(Exception error)when(error is IOException or UnauthorizedAccessException){return "清除失败，请检查项目目录是否可写。";}}
  private void StartRefreshLoop(){scheduler=new RefreshScheduler(_=>Refresh()){Interval=TimeSpan.FromSeconds(liveModel?.Preferences.RefreshSeconds??30)};_=scheduler.Start(stop.Token);}
  /// <summary>Applies the saved intervals to the sources and to the running loop; the loop re-waits at once instead of finishing the old, possibly long, interval.</summary>
  private void ApplyRefreshPreferences(DisplayPreferences preferences)
  {
-  kimi.Interval=mimo.Interval=deepSeek.Interval=TimeSpan.FromSeconds(preferences.BalanceRefreshSeconds);
+  kimi.Interval=mimo.Interval=deepSeek.Interval=qwen.Interval=TimeSpan.FromSeconds(preferences.BalanceRefreshSeconds);
   if(scheduler is null)return;
   scheduler.Interval=TimeSpan.FromSeconds(preferences.RefreshSeconds);scheduler.Reschedule();
  }
- /// <summary>Manual refresh from the tray or the settings page: forces the balances and reports the moment.</summary>
- private async Task<string> RefreshNowAsync(){kimi.RequestRefresh();mimo.RequestRefresh();deepSeek.RequestRefresh();await Refresh();return $"已刷新 {DateTimeOffset.Now:HH:mm:ss}";}
+ /// <summary>Every manual entry point forces source reads and reports the actual outcome.</summary>
+ private async Task<string> RefreshNowAsync(){await Refresh(true);return liveModel?.Snapshot?.RefreshState==RefreshState.Ready?$"已刷新 {DateTimeOffset.Now:HH:mm:ss}":liveModel?.Snapshot?.StatusMessage??"刷新未完成";}
  private void ConfirmExit(){if(MessageBox.Show("退出 TokNotch？","TokNotch",MessageBoxButton.OKCancel,MessageBoxImage.Question)==MessageBoxResult.OK)Shutdown();}
  /// <summary>Expansion mode and material are saved preferences now; applied at startup and on every save.</summary>
  private void ApplyWindowPreferences(DisplayPreferences preferences)
@@ -123,16 +147,25 @@ public partial class App : Application
   if(shell is null)return;
   shell.ApplyPreferences(preferences);
  }
- private async Task Refresh()
+ private async Task Refresh(bool force=false)
  {
   if(liveModel==null||stop.IsCancellationRequested)return;
+  if(force&&liveModel.Snapshot is {} current)liveModel.Apply(new(current.GeneratedAt,current.LastSuccessAt,current.BucketTimeZone,false,RefreshState.Refreshing,current.Vendors,current.Models,"刷新中…"));
   try{await refreshGate.WaitAsync(stop.Token);}catch(OperationCanceledException){return;}
-  try{var local=await Task.Run(()=>logs.Read(stop.Token),stop.Token);var remote=await Task.WhenAll(kimi.ReadAsync(stop.Token),mimo.ReadAsync(stop.Token),deepSeek.ReadAsync(local.Vendors.Single(v=>v.Provider==Provider.DeepSeek),stop.Token));var account=remote.Single(r=>r.Provider==Provider.DeepSeek);var vendors=local.Vendors.Where(v=>v.Provider!=Provider.DeepSeek).Select(v=>v.Provider==Provider.Dsh?DshBalanceBinding.Attach(v,account):v);liveModel.Apply(new(local.GeneratedAt,local.LastSuccessAt,local.BucketTimeZone,false,local.RefreshState,vendors.Concat(remote),local.Models));}
+  try{
+   // Reset inside the gate so an overlapping automatic refresh cannot consume the manual request.
+   if(force){kimi.RequestRefresh();mimo.RequestRefresh();deepSeek.RequestRefresh();qwen.RequestRefresh();}
+   var local=await Task.Run(()=>logs.Read(stop.Token,force),stop.Token);
+   var remote=await Task.WhenAll(kimi.ReadAsync(stop.Token),mimo.ReadAsync(stop.Token),qwen.ReadAsync(stop.Token),deepSeek.ReadAsync(local.Vendors.Single(v=>v.Provider==Provider.DeepSeek),stop.Token));
+   var account=remote.Single(r=>r.Provider==Provider.DeepSeek);
+   var vendors=local.Vendors.Where(v=>v.Provider!=Provider.DeepSeek).Select(v=>v.Provider==Provider.Dsh?DshBalanceBinding.Attach(v,account):v).Concat(remote).ToArray();
+   var failedSources=vendors.Where(v=>v.RefreshFailed).ToArray();var failed=failedSources.Length>0;var completed=DateTimeOffset.Now;
+   liveModel.Apply(new(completed,failed?liveModel.Snapshot?.LastSuccessAt??local.LastSuccessAt:completed,local.BucketTimeZone,false,failed?RefreshState.Failed:RefreshState.Ready,vendors,local.Models,failed?"未更新："+string.Join("、",failedSources.Select(v=>ProviderCatalog.Name(v.Provider)))+" · 请在数据连接页重新连接或重试":null));}
   catch(OperationCanceledException){}
   catch(Exception){if(liveModel.Snapshot is {} last)liveModel.Apply(new(last.GeneratedAt,last.LastSuccessAt,last.BucketTimeZone,false,RefreshState.Failed,last.Vendors,last.Models,"刷新失败 · 显示上次数据"));}
   finally{refreshGate.Release();}
  }
- protected override void OnExit(ExitEventArgs e){stop.Cancel();loginWindow?.Close();settingsWindow?.Close();kimi.Dispose();mimo.Dispose();deepSeek.Dispose();tray?.Dispose();singleInstance?.Dispose();base.OnExit(e);}
+ protected override void OnExit(ExitEventArgs e){stop.Cancel();loginWindow?.Close();qwenLoginWindow?.Close();settingsWindow?.Close();kimi.Dispose();mimo.Dispose();deepSeek.Dispose();qwen.Dispose();tray?.Dispose();singleInstance?.Dispose();base.OnExit(e);}
  [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="ShowWindow")]
  private static extern bool NativeShow(IntPtr handle,int command);
 }

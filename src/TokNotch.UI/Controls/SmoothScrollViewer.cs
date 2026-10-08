@@ -48,4 +48,3 @@ public sealed class SmoothScrollViewer : ScrollViewer
     }
     private void Stop() { _subscription?.Dispose(); _subscription = null; }
 }
-

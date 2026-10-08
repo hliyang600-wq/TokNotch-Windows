@@ -7,7 +7,7 @@ if (Test-Path -LiteralPath $destination) { throw 'The publish directory already 
 Push-Location $PSScriptRoot
 try {
     $runtimeArguments = if ($FrameworkDependent) { @('--self-contained', 'false') } else { @('-r', $Runtime, '--self-contained', 'true') }
-    & $dotnet publish src/TokNotch.UI/TokNotch.UI.csproj -c Release @runtimeArguments -o $destination --nologo -p:RestoreConfigFile="$PSScriptRoot\NuGet.Config" -p:DebugType=None -p:DebugSymbols=false
+    & $dotnet publish src/TokNotch.UI/TokNotch.UI.csproj -c Release @runtimeArguments -o $destination --nologo -m:1 -p:BuildInParallel=false -p:RestoreConfigFile="$PSScriptRoot\NuGet.Config" -p:DebugType=None -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
     # .NET runtime redistribution notices accompany the self-contained runtime.
     foreach ($package in $(if (!$FrameworkDependent) { @('microsoft.netcore.app.runtime.win-x64','microsoft.windowsdesktop.app.runtime.win-x64') })) {
@@ -25,6 +25,6 @@ try {
     }
     Copy-Item -LiteralPath README.md -Destination $destination
     New-Item -ItemType Directory -Force artifacts | Out-Null
+    & "$PSScriptRoot\Check-ReleasePrivacy.ps1" -PackageDirectory $destination
     Compress-Archive -Path "$destination\*" -DestinationPath "artifacts\$packageName.zip"
 } finally { Pop-Location }
-

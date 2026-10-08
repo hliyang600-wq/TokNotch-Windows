@@ -26,7 +26,7 @@ public sealed class AnimatedNumber : TextBlock
     private void Update()
     {
         _animation ??= new AnimatedScalar(Present);
-        _animation.Set(Number, IsLoaded && AnimationEnabled);
+        _animation.Set(Number, IsLoaded && AnimationEnabled && Format != "ResetTime");
     }
     private void Present(double? value)
     {
@@ -34,12 +34,10 @@ public sealed class AnimatedNumber : TextBlock
         {
             "Cny" => number.ToString("¥0.00", CultureInfo.InvariantCulture),
             "Ratio" => number.ToString("0.0'x'", CultureInfo.InvariantCulture),
+            "Percent" => number.ToString("0%", CultureInfo.InvariantCulture),
+            "ResetTime" => number is >= -62135596800 and <= 253402300799 ? DateTimeOffset.FromUnixTimeSeconds((long)number).LocalDateTime.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) : "—",
             "Compact" => number >= 1_000_000_000 ? (number / 1_000_000_000).ToString("0.0B", CultureInfo.InvariantCulture) : number >= 1_000_000 ? (number / 1_000_000).ToString("0.0M", CultureInfo.InvariantCulture) : number >= 1_000 ? (number / 1_000).ToString("0.0K", CultureInfo.InvariantCulture) : number.ToString("0", CultureInfo.InvariantCulture),
             _ => number.ToString("$0.00", CultureInfo.InvariantCulture)
         };
     }
 }
-
-
-
-

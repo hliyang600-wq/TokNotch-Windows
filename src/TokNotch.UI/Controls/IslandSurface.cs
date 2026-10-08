@@ -29,6 +29,7 @@ public sealed class IslandSurface : Grid
     private DockEdge dock;
     private readonly AnimatedScalar[] interaction;
     private Point pointer;
+    private bool updatingInteraction,shapePending;
     public UIElement? Child { get=>content.Child; set=>content.Child=value; }
     public bool SupportsGlass => glass is not null;
     internal double MaterialWidth => roundedClip.Rect.Width;
@@ -40,9 +41,10 @@ public sealed class IslandSurface : Grid
     internal Rect CaptureBounds => sourceBounds;
     public IslandSurface()
     {
-        interaction=Enumerable.Range(0,6).Select(_=>new AnimatedScalar(_=>PresentShape())).ToArray();
+        interaction=Enumerable.Range(0,6).Select(_=>new AnimatedScalar(_=>PresentInteraction())).ToArray();
         for(var i=0;i<6;i++)interaction[i].Set(i is 2 or 3?1:0,false);
-        Unloaded+=(_,_)=>{foreach(var tween in interaction)tween.Dispose();};
+        Loaded+=(_,_)=>AnimationClock.Current.FrameCompleted+=FlushInteraction;
+        Unloaded+=(_,_)=>{AnimationClock.Current.FrameCompleted-=FlushInteraction;shapePending=false;foreach(var tween in interaction)tween.Dispose();};
         Background = new LinearGradientBrush(Color.FromRgb(47,45,57),Color.FromRgb(22,21,29),90);
         rim.BorderBrush = new LinearGradientBrush(Color.FromArgb(120,255,255,255),Color.FromArgb(16,255,255,255),75);
         try { glass=new LiquidGlassEffect(); backdrop.Effect=glass; } catch { }
@@ -89,8 +91,12 @@ public sealed class IslandSurface : Grid
     {
         pointer=point;var target=material.Interaction(point.X,point.Y,baseWidth,baseHeight,pressed);
         var values=materialEnabled&&hovered&&animate?new[]{target.X,target.Y,target.ScaleX,target.ScaleY,1d,pressed?1d:0d}:new[]{0d,0d,1d,1d,hovered?1d:0d,0d};
-        for(var i=0;i<values.Length;i++)interaction[i].Set(values[i],animate);
+        updatingInteraction=true;
+        try{for(var i=0;i<values.Length;i++)interaction[i].Set(values[i],animate);}
+        finally{updatingInteraction=false;PresentInteraction();}
     }
+    private void PresentInteraction(){if(updatingInteraction)return;if(AnimationClock.Current.IsRendering)shapePending=true;else PresentShape();}
+    private void FlushInteraction(){if(shapePending){shapePending=false;PresentShape();}}
     private void PresentShape()
     {
         if(interaction is null)return;

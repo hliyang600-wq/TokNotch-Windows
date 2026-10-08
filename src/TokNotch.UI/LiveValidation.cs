@@ -24,5 +24,3 @@ internal static class LiveValidation
   await File.WriteAllLinesAsync(Path.Combine(output,"live-ui-checks.txt"),checks);
  }
 }
-
-

@@ -17,3 +17,7 @@ backups/
 **/api-keys.bin*
 **/mimo-session.bin*
 **/mimo-webview/
+
+**/qwen-webview/
+*.pdb
+*.dmp

@@ -5,14 +5,14 @@ using System.Text;
 using System.Text.Json;
 namespace TokNotch.Infrastructure.Authentication;
 
-/// <summary>Two provider keys as one protected payload; either field may be absent.</summary>
-public sealed record SavedApiKeys(string? DeepSeek,string? Kimi)
+/// <summary>Provider keys and the optional Qwen console Cookie in one protected payload.</summary>
+public sealed record SavedApiKeys(string? DeepSeek,string? Kimi,string? QwenCookie=null)
 {
- public bool IsEmpty=>string.IsNullOrWhiteSpace(DeepSeek)&&string.IsNullOrWhiteSpace(Kimi);
+ public bool IsEmpty=>string.IsNullOrWhiteSpace(DeepSeek)&&string.IsNullOrWhiteSpace(Kimi)&&string.IsNullOrWhiteSpace(QwenCookie);
 }
 
 /// <summary>
-/// DPAPI current-user protection for the DeepSeek and Kimi API keys, using the same mechanism as the MiMo session vault.
+/// DPAPI current-user protection for provider credentials, using the same mechanism as the MiMo session vault.
 /// The stored file never contains a readable key and is excluded from Git, but any process running as this Windows user
 /// can decrypt it, so the settings page can clear it at any time.
 /// </summary>
@@ -32,7 +32,7 @@ public sealed class ApiKeyVault(string projectRoot)
    {
     var saved=JsonSerializer.Deserialize<SavedApiKeys>(plain);
     if(saved is null||saved.IsEmpty)return null;
-    var restored=new SavedApiKeys(Valid(saved.DeepSeek),Valid(saved.Kimi));
+    var restored=new SavedApiKeys(Valid(saved.DeepSeek),Valid(saved.Kimi),Valid(saved.QwenCookie));
     return restored.IsEmpty?null:restored;
    }
    finally{CryptographicOperations.ZeroMemory(plain);}
@@ -40,8 +40,9 @@ public sealed class ApiKeyVault(string projectRoot)
   catch(Exception e)when(e is IOException or UnauthorizedAccessException or Win32Exception or JsonException or CryptographicException){return null;}
  }
  /// <summary>Stores one key while leaving the other provider untouched. A blank key clears only that provider; a malformed key is rejected instead of silently wiping it.</summary>
- public void SetDeepSeek(string? key)=>Write(new(Require(key),Load()?.Kimi));
- public void SetKimi(string? key)=>Write(new(Load()?.DeepSeek,Require(key)));
+ public void SetDeepSeek(string? key){var saved=Load();Write(new(Require(key),saved?.Kimi,saved?.QwenCookie));}
+ public void SetKimi(string? key){var saved=Load();Write(new(saved?.DeepSeek,Require(key),saved?.QwenCookie));}
+ public void SetQwenCookie(string? cookie){var saved=Load();Write(new(saved?.DeepSeek,saved?.Kimi,Require(cookie)));}
  public void Clear(){if(File.Exists(file)){Backup();File.Delete(file);}}
  private void Write(SavedApiKeys keys)
  {

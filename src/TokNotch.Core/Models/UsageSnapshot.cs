@@ -22,7 +22,7 @@ public sealed record RingSnapshot(string StableId, double? Fraction, string Base
 public sealed record ProviderUsageSnapshot(
     Provider Provider, string ClientId, string Title, string Model, DetectionState Detection,
     PeriodUsage Today, PeriodUsage Week, PeriodUsage Month, PeriodUsage AllTime,
-    SubscriptionUsage? Subscription, RingSnapshot Ring) { public string? SourceStatus { get; init; } public decimal? Balance { get; init; } public decimal? Cash { get; init; } public decimal? Voucher { get; init; } public string Currency { get; init; } = "CNY"; public string? BalanceStatus { get; init; } public string? BalanceSource { get; init; } public bool TokenUsageAvailable { get; init; } = true; public Provider? TokenUsageParent {get;init;} public RingSnapshot? InnerRing { get; init; } }
+    SubscriptionUsage? Subscription, RingSnapshot Ring) { public string? SourceStatus { get; init; } public bool RefreshFailed { get; init; } public decimal? Balance { get; init; } public decimal? Cash { get; init; } public decimal? Voucher { get; init; } public string Currency { get; init; } = "CNY"; public string? BalanceStatus { get; init; } public string? BalanceSource { get; init; } public bool TokenUsageAvailable { get; init; } = true; public Provider? TokenUsageParent {get;init;} public RingSnapshot? InnerRing { get; init; } }
 
 /// <summary>The sole UI usage-data input. Collections are frozen by the constructor.</summary>
 public sealed class UsageSnapshot
@@ -67,4 +67,3 @@ public sealed class UsageSnapshot
         return total;
     }
 }
-

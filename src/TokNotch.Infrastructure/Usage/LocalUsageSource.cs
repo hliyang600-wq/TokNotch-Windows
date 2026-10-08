@@ -9,34 +9,49 @@ public sealed class LocalUsageSource
  /// <summary>One rate-limit window exactly as the log recorded it; window identity comes from the duration, never from field order.</summary>
  private sealed record CodexWindow(int WindowMinutes,double UsedPercent,DateTimeOffset? ResetsAt);
  private sealed record CodexQuota(DateTimeOffset RecordedAt,IReadOnlyList<CodexWindow> Windows);
- private record Cached(long Length, DateTime Modified, List<Row> Rows,CodexQuota? Quota);
+ private record Cached(long Length, DateTime Modified, List<Row> Rows,CodexQuota? Quota,bool RefreshFailed=false);
  private readonly Dictionary<string,Cached> cache = new(StringComparer.OrdinalIgnoreCase);
  private readonly string home;
  public LocalUsageSource(string? root=null) => home=root??Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
- public UsageSnapshot Read(CancellationToken ct=default)
+ public UsageSnapshot Read(CancellationToken ct=default,bool force=false)
  {
-  var now=DateTimeOffset.Now; var vendors=new List<ProviderUsageSnapshot>();
-  vendors.Add(ReadProvider(Provider.OpenAI,"Codex",new[]{Path.Combine(home,".codex","sessions"),Path.Combine(home,".codex","archived_sessions")},"*.jsonl",now,ct));
-  vendors.Add(ReadProvider(Provider.Dsh,"DSH",new[]{Path.Combine(home,".dsh","sessions")},"*.zstd",now,ct));
-  vendors.Add(ReadProvider(Provider.DeepSeek,"DeepSeek API",new[]{Path.Combine(home,".dsh","sessions")},"*.zstd",now,ct));
-  return new(now,now,TimeZoneInfo.Local.Id,false,RefreshState.Ready,vendors,Array.Empty<ModelUsage>());
+  var now=DateTimeOffset.Now;
+  var codex=ReadFiles(Provider.OpenAI,new[]{Path.Combine(home,".codex","sessions"),Path.Combine(home,".codex","archived_sessions")},"*.jsonl",ct,force);
+  var dsh=ReadFiles(Provider.Dsh,new[]{Path.Combine(home,".dsh","sessions")},"*.zstd",ct,force);
+  // DSH and attributed DeepSeek usage share one scan, parse result and failure state.
+  var vendors=new[]{ReadProvider(Provider.OpenAI,"Codex",codex,now),ReadProvider(Provider.Dsh,"DSH",dsh,now),ReadProvider(Provider.DeepSeek,"DeepSeek API",dsh,now)};
+  return new(now,now,TimeZoneInfo.Local.Id,false,vendors.Any(v=>v.RefreshFailed)?RefreshState.Failed:RefreshState.Ready,vendors,Array.Empty<ModelUsage>());
  }
- private ProviderUsageSnapshot ReadProvider(Provider provider,string title,string[] roots,string pattern,DateTimeOffset now,CancellationToken ct)
+ private (string[] Files,IEnumerable<Row> Rows,int Failed) ReadFiles(Provider provider,string[] roots,string pattern,CancellationToken ct,bool force)
  {
-  var rows=new List<Row>(); var files=roots.Where(Directory.Exists).SelectMany(r=>Directory.EnumerateFiles(r,pattern,SearchOption.AllDirectories)).ToArray(); int failed=0;
-  foreach(var file in files) { ct.ThrowIfCancellationRequested(); var info=new FileInfo(file); if(!cache.TryGetValue(file,out var old)||old.Length!=info.Length||old.Modified!=info.LastWriteTimeUtc){try{ var parsedRows=Parse(file,provider==Provider.DeepSeek?Provider.Dsh:provider,ct,out var parsedQuota); old=new(info.Length,info.LastWriteTimeUtc,parsedRows,parsedQuota);cache[file]=old;}catch(Exception e)when(e is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ZstdException){failed++;}} if(old!=null)rows.AddRange(provider==Provider.DeepSeek?old.Rows.Where(r=>r.DeepSeekApi):old.Rows); }
+  var files=roots.Where(Directory.Exists).SelectMany(r=>Directory.EnumerateFiles(r,pattern,SearchOption.AllDirectories)).ToArray(); int failed=0;
+  foreach(var file in files) { ct.ThrowIfCancellationRequested(); var info=new FileInfo(file); if(!cache.TryGetValue(file,out var old)||force||old.RefreshFailed||old.Length!=info.Length||old.Modified!=info.LastWriteTimeUtc){try{ var parsedRows=Parse(file,provider,ct,out var parsedQuota); cache[file]=new(info.Length,info.LastWriteTimeUtc,parsedRows,parsedQuota);}catch(Exception e)when(e is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ZstdException){failed++;if(old!=null)cache[file]=old with {RefreshFailed=true};}} }
   var existing=new HashSet<string>(files,StringComparer.OrdinalIgnoreCase);
   foreach(var key in cache.Keys.Where(k=>roots.Any(r=>k.StartsWith(r+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))&&!existing.Contains(k)).ToArray()) cache.Remove(key);
-  var distinct=rows.DistinctBy(r=>r.Key).ToArray();var today=now.Date;var month=new DateTime(today.Year,today.Month,1);var week=today.AddDays(-((7+(int)today.DayOfWeek-1)%7));
-  PeriodUsage Sum(Func<Row,bool> filter){long a=0,b=0,c=0,d=0,e=0;foreach(var row in distinct.Where(filter)){a=checked(a+row.Tokens.Input);b=checked(b+row.Tokens.Output);c=checked(c+row.Tokens.CacheRead);d=checked(d+row.Tokens.CacheWrite);e=checked(e+row.Tokens.Reasoning);}return new(new(a,b,c,d,e),null,CostStatus.Unavailable);}
-  var t=Sum(r=>r.Time.LocalDateTime.Date==today);var m=Sum(r=>r.Time.LocalDateTime>=month&&r.Time<=now);var all=Sum(_=>true);
+  return (files,files.Where(cache.ContainsKey).SelectMany(file=>cache[file].Rows),failed);
+ }
+ private ProviderUsageSnapshot ReadProvider(Provider provider,string title,(string[] Files,IEnumerable<Row> Rows,int Failed) source,DateTimeOffset now)
+ {
+  var files=source.Files;var failed=source.Failed;
+  var today=now.Date;var month=new DateTime(today.Year,today.Month,1);var week=today.AddDays(-((7+(int)today.DayOfWeek-1)%7));
+  var distinct=new HashSet<string>();Span<long> totals=stackalloc long[20];totals.Clear();
+  foreach(var row in source.Rows){
+   if(provider==Provider.DeepSeek&&!row.DeepSeekApi||!distinct.Add(row.Key))continue;
+   var time=row.Time.LocalDateTime;Add(totals[..5],row.Tokens);
+   if(time.Date==today)Add(totals.Slice(5,5),row.Tokens);
+   if(time>=week&&row.Time<=now)Add(totals.Slice(10,5),row.Tokens);
+   if(time>=month&&row.Time<=now)Add(totals.Slice(15,5),row.Tokens);
+  }
+  static void Add(Span<long> sum,TokenCounts n){sum[0]=checked(sum[0]+n.Input);sum[1]=checked(sum[1]+n.Output);sum[2]=checked(sum[2]+n.CacheRead);sum[3]=checked(sum[3]+n.CacheWrite);sum[4]=checked(sum[4]+n.Reasoning);}
+  static PeriodUsage Period(ReadOnlySpan<long> sum)=>new(new(sum[0],sum[1],sum[2],sum[3],sum[4]),null,CostStatus.Unavailable);
+  var all=Period(totals[..5]);var t=Period(totals.Slice(5,5));var w=Period(totals.Slice(10,5));var m=Period(totals.Slice(15,5));
   var quota=provider==Provider.OpenAI?LatestQuota(files):null;
   var ring=Ring(provider,title,quota,now);
-  if(provider!=Provider.OpenAI)return new(provider,title.ToLowerInvariant(),title,title,files.Length==0||provider==Provider.DeepSeek&&distinct.Length==0?DetectionState.NotDetected:failed==files.Length && distinct.Length==0?DetectionState.Unavailable:distinct.Length==0?DetectionState.DetectedNoUsage:DetectionState.Ready,t,Sum(r=>r.Time.LocalDateTime>=week&&r.Time<=now),m,all,null,ring){TokenUsageParent=provider==Provider.DeepSeek?Provider.Dsh:null,SourceStatus=failed>0?$"{failed} 个日志暂不可读 · 保留已读数据":provider==Provider.DeepSeek?$"本地 DeepSeek API 会话 · 非账户全量 · {now:HH:mm} 更新":$"本地日志 {files.Length} 个 · {now:HH:mm:ss} 更新"};
+  if(provider!=Provider.OpenAI)return new(provider,title.ToLowerInvariant(),title,title,files.Length==0||provider==Provider.DeepSeek&&distinct.Count==0?DetectionState.NotDetected:failed==files.Length && distinct.Count==0?DetectionState.Unavailable:distinct.Count==0?DetectionState.DetectedNoUsage:DetectionState.Ready,t,w,m,all,null,ring){RefreshFailed=failed>0,TokenUsageParent=provider==Provider.DeepSeek?Provider.Dsh:null,SourceStatus=failed>0?$"{failed} 个日志暂不可读 · 保留已读数据":provider==Provider.DeepSeek?$"本地 DeepSeek API 会话 · 非账户全量 · {now:HH:mm} 更新":$"本地日志 {files.Length} 个 · {now:HH:mm:ss} 更新"};
   var status=files.Length==0?"未找到 Codex 会话日志":failed>0?$"{failed} 个日志暂不可读 · 保留已读数据":quota is null?$"本地日志 {files.Length} 个 · 无额度记录 · {now:HH:mm:ss} 更新":$"本地日志 {files.Length} 个 · 额度为 {quota.RecordedAt.LocalDateTime:MM-dd HH:mm} 快照";
   var inner=Inner(quota,now);
   if(ring.ResetElapsed||inner.ResetElapsed)status+=" · 已过重置时间，窗口已过期，显示上次记录";
-  return new(provider,title.ToLowerInvariant(),title,title,files.Length==0?DetectionState.NotDetected:failed==files.Length&&distinct.Length==0?DetectionState.Unavailable:distinct.Length==0?DetectionState.DetectedNoUsage:DetectionState.Ready,t,Sum(r=>r.Time.LocalDateTime>=week&&r.Time<=now),m,all,null,ring){InnerRing=inner,SourceStatus=status};
+  return new(provider,title.ToLowerInvariant(),title,title,files.Length==0?DetectionState.NotDetected:failed==files.Length&&distinct.Count==0?DetectionState.Unavailable:distinct.Count==0?DetectionState.DetectedNoUsage:DetectionState.Ready,t,w,m,all,null,ring){RefreshFailed=failed>0,InnerRing=inner,SourceStatus=status};
  }
  /// <summary>Codex quota rings stay percentages. The five-hour and weekly windows are matched by their published duration.</summary>
  private static RingSnapshot Ring(Provider provider,string title,CodexQuota? quota,DateTimeOffset now)

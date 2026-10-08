@@ -45,4 +45,3 @@ public sealed class IslandMorphController(Action<double> apply) : IDisposable
     private bool _gentleDestination;
     public void Dispose() { Stop(); _disposed = true; Settled = null; }
 }
-

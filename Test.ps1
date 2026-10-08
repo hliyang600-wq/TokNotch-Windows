@@ -10,7 +10,9 @@ try {
     }
     if ($Native) {
         New-Item -ItemType Directory -Force artifacts | Out-Null
-        & $dotnet src/TokNotch.UI/bin/Release/net10.0-windows/TokNotchWindows.dll --validate
-        if ($LASTEXITCODE -ne 0) { throw 'Native window checks failed.' }
+        foreach ($flag in @('--validate','--rows-validate','--manual-refresh-validate')) {
+            & $dotnet src/TokNotch.UI/bin/Release/net10.0-windows/TokNotchWindows.dll $flag
+            if ($LASTEXITCODE -ne 0) { throw "Native checks failed: $flag" }
+        }
     }
 } finally { Pop-Location }

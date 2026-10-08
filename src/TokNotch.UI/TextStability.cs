@@ -42,4 +42,3 @@ internal static class TextStability
  }
  private sealed record Sample(double TimeMs,double Progress,double[] X,double[] Y);
 }
-
